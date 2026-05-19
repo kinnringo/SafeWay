@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart'; // 地図表示用
-import 'package:latlong2/latlong2.dart';      // 座標管理用
+import 'package:latlong2/latlong.dart';      // 座標管理用
 
 void main() {
   runApp(const SafeWayApp());
