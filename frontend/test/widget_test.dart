@@ -1,7 +1,5 @@
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-
 import 'package:frontend/main.dart';
 
 void main() {
@@ -13,7 +11,7 @@ void main() {
       ),
     );
 
-    // アプリのタイトル文字があるか確認
+    // テスト： 'SafeWay - Phase 1' という文字が存在するか確認
     expect(find.text('SafeWay'), findsOneWidget);
   });
 }
