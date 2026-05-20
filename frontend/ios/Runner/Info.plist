@@ -66,5 +66,13 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>現在地を表示し、周辺の安全ルートを検索するために位置情報を利用します。</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>現在地を表示し、周辺の安全ルートを検索するために位置情報を利用します。</string>
+	<key>NSCameraUsageDescription</key>
+	<string>街の危険箇所や街灯を撮影して安全スコアに反映するためにカメラを使用します。</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>保存された画像から危険箇所や街灯の写真を選択するために写真ライブラリにアクセスします。</string>
 </dict>
 </plist>
