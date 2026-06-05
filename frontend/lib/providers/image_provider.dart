@@ -1,30 +1,56 @@
+import 'dart:io';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
+import '../models/analyze_result.dart';
+import '../services/api_service.dart';
 
-/// 選択された画像を保持・操作するNotifier
-class SelectedImageNotifier extends StateNotifier<XFile?> {
-  SelectedImageNotifier() : super(null);
+class ImageAnalyzeState {
+  final XFile? image;
+  final bool isAnalyzing;
+  final AnalyzeResponse? analyzeResult;
 
+  ImageAnalyzeState({
+    this.image,
+    this.isAnalyzing = false,
+    this.analyzeResult,
+  });
+
+  ImageAnalyzeState copyWith({
+    XFile? image,
+    bool? isAnalyzing,
+    AnalyzeResponse? analyzeResult,
+    bool clearResult = false,
+  }) {
+    return ImageAnalyzeState(
+      image: image ?? this.image,
+      isAnalyzing: isAnalyzing ?? this.isAnalyzing,
+      analyzeResult: clearResult ? null : (analyzeResult ?? this.analyzeResult),
+    );
+  }
+}
+
+class SelectedImageNotifier extends StateNotifier<ImageAnalyzeState> {
+  final ApiService _apiService;
   final ImagePicker _picker = ImagePicker();
 
-  /// カメラを起動して写真を撮影する
+  SelectedImageNotifier(this._apiService) : super(ImageAnalyzeState());
+
   Future<void> pickImageFromCamera() async {
     try {
       final XFile? image = await _picker.pickImage(
         source: ImageSource.camera,
         maxWidth: 1024,
         maxHeight: 1024,
-        imageQuality: 80, // サーバーアップロードに備えて軽量化
+        imageQuality: 80,
       );
       if (image != null) {
-        state = image;
+        await _processImage(image);
       }
     } catch (e) {
-      // 権限エラーやユーザーキャンセル時は何もしない
+      // 権限エラー時等
     }
   }
 
-  /// ギャラリーを開いて画像を選択する
   Future<void> pickImageFromGallery() async {
     try {
       final XFile? image = await _picker.pickImage(
@@ -34,20 +60,34 @@ class SelectedImageNotifier extends StateNotifier<XFile?> {
         imageQuality: 80,
       );
       if (image != null) {
-        state = image;
+        await _processImage(image);
       }
     } catch (e) {
       // エラーハンドリング
     }
   }
 
-  /// 選択されている画像をクリアする
+  Future<void> _processImage(XFile image) async {
+    // 画像をセットし、解析中状態にする
+    state = state.copyWith(image: image, isAnalyzing: true, clearResult: true);
+
+    try {
+      // APIサービスを呼び出して解析を実行
+      final result = await _apiService.analyzeImage(File(image.path));
+      // 解析完了
+      state = state.copyWith(isAnalyzing: false, analyzeResult: result);
+    } catch (e) {
+      // エラー時はローディングを解除して結果なし
+      state = state.copyWith(isAnalyzing: false);
+    }
+  }
+
   void clearImage() {
-    state = null;
+    state = ImageAnalyzeState(); // 初期状態に戻す
   }
 }
 
-/// 選択された画像をグローバルに提供するプロバイダー
-final selectedImageProvider = StateNotifierProvider<SelectedImageNotifier, XFile?>((ref) {
-  return SelectedImageNotifier();
+final selectedImageProvider = StateNotifierProvider<SelectedImageNotifier, ImageAnalyzeState>((ref) {
+  final apiService = ref.watch(apiServiceProvider);
+  return SelectedImageNotifier(apiService);
 });

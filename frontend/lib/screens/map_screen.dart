@@ -35,7 +35,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   @override
   Widget build(BuildContext context) {
     final locationAsync = ref.watch(locationStreamProvider);
-    final selectedImage = ref.watch(selectedImageProvider);
+    final imageState = ref.watch(selectedImageProvider);
 
     // 初期位置（前橋駅）
     const LatLng centerPosition = LatLng(36.3895, 139.0634);
@@ -71,7 +71,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
               showAboutDialog(
                 context: context,
                 applicationName: 'SafeWay',
-                applicationVersion: '1.0.0 (Phase 1)',
+                applicationVersion: '1.0.0 (Phase 2)',
                 applicationIcon: const Icon(
                   Icons.shield,
                   color: AppColors.primaryNavy,
@@ -80,7 +80,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                 children: [
                   const Text('GPA 2026 アプリ部門受賞を目指す「安心」ナビゲーション。'),
                   const SizedBox(height: 8),
-                  const Text('Phase 1: 現在地GPS連動・写真撮影シミュレーション機能'),
+                  const Text('Phase 2: YOLO画像解析APIとの通信とBBox描画UI'),
                 ],
               );
             },
@@ -145,8 +145,8 @@ class _MapScreenState extends ConsumerState<MapScreen> {
           ),
 
           // 2. 選択された画像のプレビューカード
-          if (selectedImage != null)
-            ImagePreviewCard(imageFile: selectedImage),
+          if (imageState.image != null)
+            ImagePreviewCard(imageState: imageState),
 
           // 3. 右下のボタンコントローラー
           ActionButtons(
