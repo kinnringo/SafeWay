@@ -1,4 +1,3 @@
-import 'dart:io';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 import '../models/analyze_result.dart';
@@ -72,8 +71,8 @@ class SelectedImageNotifier extends StateNotifier<ImageAnalyzeState> {
     state = state.copyWith(image: image, isAnalyzing: true, clearResult: true);
 
     try {
-      // APIサービスを呼び出して解析を実行
-      final result = await _apiService.analyzeImage(File(image.path));
+      // APIサービスを呼び出して解析を実行（Web完全対応のためXFileをそのまま渡す）
+      final result = await _apiService.analyzeImage(image);
       // 解析完了
       state = state.copyWith(isAnalyzing: false, analyzeResult: result);
     } catch (e) {

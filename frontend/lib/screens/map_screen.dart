@@ -1,9 +1,9 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
-import '../providers/location_provider.dart';
 import '../providers/image_provider.dart';
 import '../core/theme.dart';
 import '../widgets/image_preview_card.dart';
@@ -18,39 +18,80 @@ class MapScreen extends ConsumerStatefulWidget {
 
 class _MapScreenState extends ConsumerState<MapScreen> {
   late final MapController _mapController;
+  StreamSubscription<Position>? _positionStream;
+  
+  LatLng? _currentPosition;
+  bool _isLoadingGps = true;
   bool _hasMovedToCurrentLocation = false;
+  final LatLng _defaultCenter = const LatLng(36.3895, 139.0634); // 前橋駅
 
   @override
   void initState() {
     super.initState();
     _mapController = MapController();
+    _initLocationTracking();
+  }
+
+  Future<void> _initLocationTracking() async {
+    bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) return;
+
+    LocationPermission permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+      if (permission == LocationPermission.denied) return;
+    }
+    if (permission == LocationPermission.deniedForever) return;
+
+    // 初回の現在地を取得
+    try {
+      final pos = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+      );
+      if (mounted) {
+        setState(() {
+          _currentPosition = LatLng(pos.latitude, pos.longitude);
+          _isLoadingGps = false;
+        });
+        _mapController.move(_currentPosition!, 15.0);
+        _hasMovedToCurrentLocation = true;
+      }
+    } catch (e) {
+      // 初期取得失敗時は無視してストリームへ
+    }
+
+    // ストリームで継続的な追従（更新頻度を下げて点滅を防止）
+    _positionStream = Geolocator.getPositionStream(
+      locationSettings: const LocationSettings(
+        accuracy: LocationAccuracy.high,
+        distanceFilter: 10, // 10メートル以上動いた時だけ更新
+      ),
+    ).listen((Position position) {
+      if (mounted) {
+        setState(() {
+          _currentPosition = LatLng(position.latitude, position.longitude);
+          _isLoadingGps = false;
+        });
+        
+        if (!_hasMovedToCurrentLocation) {
+          _mapController.move(_currentPosition!, 15.0);
+          _hasMovedToCurrentLocation = true;
+        }
+      }
+    });
   }
 
   @override
   void dispose() {
+    _positionStream?.cancel();
     _mapController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final locationAsync = ref.watch(locationStreamProvider);
+    // 全体をリビルドさせるのは画像の状態が変わった時だけ！
     final imageState = ref.watch(selectedImageProvider);
-
-    // 初期位置（前橋駅）
-    const LatLng centerPosition = LatLng(36.3895, 139.0634);
-    LatLng? currentPosition;
-
-    locationAsync.whenData((Position position) {
-      currentPosition = LatLng(position.latitude, position.longitude);
-
-      if (!_hasMovedToCurrentLocation && currentPosition != null) {
-        _hasMovedToCurrentLocation = true;
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          _mapController.move(currentPosition!, 15.0);
-        });
-      }
-    });
 
     return Scaffold(
       appBar: AppBar(
@@ -72,15 +113,11 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                 context: context,
                 applicationName: 'SafeWay',
                 applicationVersion: '1.0.0 (Phase 2)',
-                applicationIcon: const Icon(
-                  Icons.shield,
-                  color: AppColors.primaryNavy,
-                  size: 40,
-                ),
+                applicationIcon: const Icon(Icons.shield, color: AppColors.primaryNavy, size: 40),
                 children: [
                   const Text('GPA 2026 アプリ部門受賞を目指す「安心」ナビゲーション。'),
                   const SizedBox(height: 8),
-                  const Text('Phase 2: YOLO画像解析APIとの通信とBBox描画UI'),
+                  const Text('Phase 2: 点滅バグ修正版・YOLO解析連携'),
                 ],
               );
             },
@@ -89,11 +126,11 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       ),
       body: Stack(
         children: [
-          // 1. 地図表示 (OpenStreetMap)
+          // 1. 地図表示
           FlutterMap(
             mapController: _mapController,
-            options: const MapOptions(
-              initialCenter: centerPosition,
+            options: MapOptions(
+              initialCenter: _defaultCenter,
               initialZoom: 15.0,
             ),
             children: [
@@ -101,11 +138,11 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                 urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
                 userAgentPackageName: 'com.example.frontend',
               ),
-              if (currentPosition != null)
+              if (_currentPosition != null)
                 MarkerLayer(
                   markers: [
                     Marker(
-                      point: currentPosition!,
+                      point: _currentPosition!,
                       width: 60,
                       height: 60,
                       child: Stack(
@@ -144,18 +181,18 @@ class _MapScreenState extends ConsumerState<MapScreen> {
             ],
           ),
 
-          // 2. 選択された画像のプレビューカード
+          // 2. プレビュー画像（選択された時だけ）
           if (imageState.image != null)
             ImagePreviewCard(imageState: imageState),
 
-          // 3. 右下のボタンコントローラー
+          // 3. 右下のアクションボタン
           ActionButtons(
             mapController: _mapController,
-            currentPosition: currentPosition,
+            currentPosition: _currentPosition,
           ),
 
           // 4. GPSロード中インジケータ
-          if (locationAsync.isLoading)
+          if (_isLoadingGps)
             Positioned(
               top: 16,
               left: 16,
@@ -186,11 +223,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                         SizedBox(width: 10),
                         Text(
                           'GPS現在地を取得中...',
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w500,
-                            color: Colors.black87,
-                          ),
+                          style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: Colors.black87),
                         ),
                       ],
                     ),

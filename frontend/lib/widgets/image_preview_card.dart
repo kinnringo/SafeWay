@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/image_provider.dart';
@@ -89,11 +90,16 @@ class ImagePreviewCard extends ConsumerWidget {
             child: Stack(
               fit: StackFit.expand,
               children: [
-                // 1. 画像本体
-                Image.file(
-                  File(imageState.image!.path),
-                  fit: BoxFit.cover,
-                ),
+                // 1. 画像本体（Webとモバイルで出し分け）
+                kIsWeb
+                    ? Image.network(
+                        imageState.image!.path,
+                        fit: BoxFit.cover,
+                      )
+                    : Image.file(
+                        File(imageState.image!.path),
+                        fit: BoxFit.cover,
+                      ),
 
                 // 2. BBoxの描画（解析結果がある場合のみ）
                 if (imageState.analyzeResult != null && imageState.analyzeResult!.results.isNotEmpty)

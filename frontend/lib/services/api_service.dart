@@ -1,4 +1,4 @@
-import 'dart:io';
+import 'package:image_picker/image_picker.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/analyze_result.dart';
 // import 'package:http/http.dart' as http; // 本番連携時に使用
@@ -10,10 +10,12 @@ class ApiService {
   // static const String baseUrl = 'http://192.168.X.X:8000/api';
 
   /// 画像をサーバーに送信し、解析結果（BBox等）を受け取る
-  Future<AnalyzeResponse> analyzeImage(File imageFile) async {
+  Future<AnalyzeResponse> analyzeImage(XFile imageFile) async {
     /* --- 本番連携時のコード（2日後にコメントアウトを解除します） ---
     var request = http.MultipartRequest('POST', Uri.parse('$baseUrl/analyze'));
-    request.files.add(await http.MultipartFile.fromPath('file', imageFile.path));
+    // Webとモバイル両対応のためXFileのreadAsBytesを使用するか、パスを使います
+    // request.files.add(await http.MultipartFile.fromPath('file', imageFile.path));
+
     var response = await request.send();
     
     if (response.statusCode == 200) {
