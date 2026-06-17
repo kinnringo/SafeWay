@@ -53,3 +53,8 @@ docker-compose.override.yml
 # Environment
 .env
 .env.local
+
+# IOS
+ios/Pods/
+ios/.symlinks/
+ios/Podfile.lock
