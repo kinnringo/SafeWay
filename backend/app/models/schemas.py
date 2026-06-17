@@ -4,10 +4,13 @@
 ここを変更する場合は、必ずフロント担当と合意してから行う。
 """
 
+from typing import Optional
 from pydantic import BaseModel, Field
 
 
-# --- ルート検索 ---
+# ---------------------------------------------------------------------------
+# ルート検索
+# ---------------------------------------------------------------------------
 
 
 class RouteRequest(BaseModel):
@@ -29,23 +32,49 @@ class RouteResponse(BaseModel):
     )
 
 
-# --- 画像解析 ---
+# ---------------------------------------------------------------------------
+# 画像解析
+# ---------------------------------------------------------------------------
 
 
-class Detection(BaseModel):
-    """単一の検出結果"""
+class DetectionResult(BaseModel):
+    """1つの検出結果とその位置推定情報"""
 
-    label: str = Field(..., description="検出ラベル（streetlight, sidewalk 等）")
-    confidence: float = Field(..., ge=0.0, le=1.0, description="信頼度")
-    bbox: list[float] = Field(..., description="バウンディングボックス [x1, y1, x2, y2]")
+    label: str = Field(..., description="検出ラベル（streetlight, obstacle 等）")
+    confidence: float = Field(..., ge=0.0, le=1.0, description="YOLO の信頼度")
+    bbox: list[float] = Field(..., description="バウンディングボックス [x1, y1, x2, y2]（画像ピクセル座標）")
+
+    # 推定されたオブジェクトの実際の位置
+    object_lat: float = Field(..., description="推定したオブジェクトの緯度")
+    object_lng: float = Field(..., description="推定したオブジェクトの経度")
+
+    # 距離推定の参考情報
+    estimated_distance_m: Optional[float] = Field(
+        None, description="カメラから物体までの推定水平距離（メートル）。position_accuracy が low の場合は null"
+    )
+
+    # 位置精度フラグ
+    position_accuracy: str = Field(
+        ...,
+        description=(
+            "位置推定の精度。"
+            "'high': コンパス方位角と焦点距離から推定（精度良好）。"
+            "'low': 情報不足のため撮影者位置を使用（精度低）。"
+        ),
+    )
+
+    # 安全スコアへの影響
+    score_modifier: float = Field(
+        ..., description="このオブジェクトが安全スコアに与える影響（正=安全方向、負=危険方向）"
+    )
 
 
 class AnalyzeResponse(BaseModel):
     """画像解析レスポンス"""
 
-    detections: list[dict] = Field(..., description="検出結果のリスト")
-    lat: float = Field(..., description="撮影地点の緯度")
-    lng: float = Field(..., description="撮影地点の経度")
+    detections: list[DetectionResult] = Field(..., description="検出結果のリスト")
+    user_lat: float = Field(..., description="撮影者の緯度")
+    user_lng: float = Field(..., description="撮影者の経度")
     updated_score: float = Field(
-        ..., ge=0.0, le=1.0, description="更新後の安全スコア"
+        ..., ge=0.0, le=1.0, description="更新後の安全スコア（暫定計算値）"
     )

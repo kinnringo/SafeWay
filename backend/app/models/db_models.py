@@ -38,10 +38,18 @@ class Detection(Base):
     confidence = Column(Float, nullable=False)
     image_path = Column(String, nullable=True)
     geom = Column(Geometry(geometry_type='POINT', srid=4326), nullable=False)
+    # 物体の GPS 位置推定精度
+    #   "high": コンパス方位角 + 焦点距離から位置を推定（精度良好）
+    #   "low":  方位角または焦点距離が不明で撮影者位置を使用（精度低）
+    position_accuracy = Column(String, default="low", nullable=False)
+    # カメラから物体までの推定水平距離（メートル）
+    # position_accuracy が "low" の場合は None
+    estimated_distance_m = Column(Float, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
     user = relationship("User", back_populates="detections")
     safety_point = relationship("SafetyPoint", back_populates="detection", uselist=False)
+
 
 
 class CrimeReport(Base):
