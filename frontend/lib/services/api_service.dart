@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
@@ -12,31 +13,93 @@ class ApiService {
   // iPhone実機でテストする場合は、MacのIPアドレス（例: 192.168.1.5等）に変更してください！
   static const String baseUrl = 'http://127.0.0.1:8000/api';
 
-  /// 画像をサーバーに送信し、解析結果（BBox等）を受け取る
-  Future<AnalyzeResponse> analyzeImage(XFile imageFile) async {
-    // 1. リクエストの準備
-    var request = http.MultipartRequest('POST', Uri.parse('$baseUrl/analyze'));
-    
-    // 2. Web・モバイル両対応で画像をバイトデータとして読み込んで添付
-    final bytes = await imageFile.readAsBytes();
-    request.files.add(
-      http.MultipartFile.fromBytes(
-        'file', 
-        bytes, 
-        filename: imageFile.name,
-      )
+  /// モードA: ライブカメラ撮影モード
+  ///
+  /// 仕様書 Section 4 モードA に準拠。
+  /// GPS座標・コンパス方位角（bearing）・焦点距離をFormフィールドとして一緒に送信する。
+  /// これにより、バックエンドが「物体の実際のGPS位置」を高精度で推定できる。
+  ///
+  /// [imageFile] 撮影した画像ファイル
+  /// [lat] 撮影者の緯度
+  /// [lng] 撮影者の経度
+  /// [bearing] コンパス方位角（0〜360°, 0=北, 時計回り）。取得できない場合はnull。
+  /// [focalLength35mm] 35mm換算焦点距離。EXIFから取得できない場合はnull。
+  Future<AnalyzeResponse> analyzeImageCamera({
+    required XFile imageFile,
+    required double lat,
+    required double lng,
+    double? bearing,
+    double? focalLength35mm,
+  }) async {
+    final request = http.MultipartRequest(
+      'POST',
+      Uri.parse('$baseUrl/analyze'),
     );
 
-    // 3. APIに送信
-    var response = await request.send();
-    
-    // 4. 結果のパース
+    // 画像をバイトデータとして添付（Web・モバイル両対応）
+    final bytes = await imageFile.readAsBytes();
+    request.files.add(
+      http.MultipartFile.fromBytes('image', bytes, filename: imageFile.name),
+    );
+
+    // GPS座標を送信（モードAは必須）
+    request.fields['lat'] = lat.toString();
+    request.fields['lng'] = lng.toString();
+
+    // コンパス方位角を 0〜360 に正規化して送信（仕様書 Section 6-4 準拠）
+    if (bearing != null) {
+      final normalizedBearing = (bearing % 360 + 360) % 360;
+      request.fields['bearing'] = normalizedBearing.toString();
+    }
+
+    // 焦点距離を送信（あれば position_accuracy: "high" になる）
+    if (focalLength35mm != null) {
+      request.fields['focal_length_35mm'] = focalLength35mm.toString();
+    }
+
+    return _sendRequest(request);
+  }
+
+  /// モードB: ギャラリーから過去写真を選択するモード
+  ///
+  /// 仕様書 Section 4 モードB に準拠。
+  /// 画像ファイルのみ送信。バックエンドがEXIFからGPS・bearing等を自動抽出する。
+  /// EXIF が存在しない場合は position_accuracy: "low" になるがエラーにはならない。
+  Future<AnalyzeResponse> analyzeImageGallery({
+    required XFile imageFile,
+  }) async {
+    final request = http.MultipartRequest(
+      'POST',
+      Uri.parse('$baseUrl/analyze'),
+    );
+
+    // 画像のみ送信（仕様書通り）
+    final bytes = await imageFile.readAsBytes();
+    request.files.add(
+      http.MultipartFile.fromBytes('image', bytes, filename: imageFile.name),
+    );
+
+    // デバッグ時のみ test_mode を有効化（リリース版では使用しない）
+    if (kDebugMode) {
+      request.fields['test_mode'] = 'true';
+    }
+
+    return _sendRequest(request);
+  }
+
+  /// 共通: リクエスト送信とレスポンスのパース
+  Future<AnalyzeResponse> _sendRequest(http.MultipartRequest request) async {
+    final response = await request.send();
+    final responseData = await response.stream.bytesToString();
+
     if (response.statusCode == 200) {
-      var responseData = await response.stream.bytesToString();
-      var jsonResponse = jsonDecode(responseData);
+      final jsonResponse = jsonDecode(responseData) as Map<String, dynamic>;
       return AnalyzeResponse.fromJson(jsonResponse);
+    } else if (response.statusCode == 400) {
+      // GPS座標が取得できなかった場合など
+      throw Exception('リクエストエラー (400): GPS座標またはEXIFデータが不足しています');
     } else {
-      throw Exception('Failed to analyze image: HTTP ${response.statusCode}');
+      throw Exception('サーバーエラー: HTTP ${response.statusCode}');
     }
   }
 }

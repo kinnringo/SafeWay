@@ -3,64 +3,19 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:latlong2/latlong.dart';
 import '../providers/location_provider.dart';
-import '../providers/image_provider.dart';
 import '../core/theme.dart';
 
 class ActionButtons extends ConsumerWidget {
   final MapController mapController;
   final LatLng? currentPosition;
+  final VoidCallback onCameraPressed;
 
   const ActionButtons({
     super.key,
     required this.mapController,
     required this.currentPosition,
+    required this.onCameraPressed,
   });
-
-  void _showImageSourceBottomSheet(BuildContext context, WidgetRef ref) {
-    showModalBottomSheet(
-      context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (BuildContext context) {
-        return SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Padding(
-                padding: EdgeInsets.symmetric(vertical: 16),
-                child: Text(
-                  '街の状況を投稿',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                    color: AppColors.primaryNavy,
-                  ),
-                ),
-              ),
-              ListTile(
-                leading: const Icon(Icons.camera_alt, color: AppColors.primaryNavy),
-                title: const Text('カメラで撮影（街灯・危険箇所など）'),
-                onTap: () {
-                  Navigator.pop(context);
-                  ref.read(selectedImageProvider.notifier).pickImageFromCamera();
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.photo_library, color: AppColors.primaryNavy),
-                title: const Text('ギャラリーから写真を選択'),
-                onTap: () {
-                  Navigator.pop(context);
-                  ref.read(selectedImageProvider.notifier).pickImageFromGallery();
-                },
-              ),
-              const SizedBox(height: 8),
-            ],
-          ),
-        );
-      },
-    );
-  }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -93,7 +48,8 @@ class ActionButtons extends ConsumerWidget {
               elevation: 4,
               child: locationAsync.when(
                 data: (_) => const Icon(Icons.my_location),
-                error: (error, stack) => const Icon(Icons.location_off, color: Colors.red),
+                error: (error, stack) =>
+                    const Icon(Icons.location_off, color: Colors.red),
                 loading: () => const SizedBox(
                   width: 22,
                   height: 22,
@@ -105,7 +61,7 @@ class ActionButtons extends ConsumerWidget {
             // カメラ起動・写真投稿ボタン
             FloatingActionButton.large(
               heroTag: 'takePhotoBtn',
-              onPressed: () => _showImageSourceBottomSheet(context, ref),
+              onPressed: onCameraPressed,
               backgroundColor: AppColors.emeraldGreen,
               foregroundColor: AppColors.white,
               elevation: 6,
