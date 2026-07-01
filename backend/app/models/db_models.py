@@ -84,7 +84,7 @@ class SafetyPoint(Base):
 
 
 class Edge(Base):
-    __tablename__ = "edges"
+    __tablename__ = "road_edges"
 
     id = Column(Integer, primary_key=True, index=True)
     osm_id = Column(BigInteger, unique=True, index=True, nullable=True)

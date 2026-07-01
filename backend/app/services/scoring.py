@@ -26,7 +26,7 @@ _UPDATE_EDGE_SCORES_SQL = text("""
         --         ST_DWithin は空間インデックスを使用するため高速に動作する
         --         SRID 3857 (Web Mercator) に変換することでメートル単位の距離指定が可能になる
         SELECT e.id
-        FROM edges e
+        FROM road_edges e
         WHERE ST_DWithin(
             ST_Transform(e.geom, 3857),
             ST_Transform(ST_SetSRID(ST_MakePoint(:lng, :lat), 4326), 3857),
@@ -39,7 +39,7 @@ _UPDATE_EDGE_SCORES_SQL = text("""
         SELECT
             e.id AS edge_id,
             COALESCE(SUM(sp.score_modifier), 0.0) AS score_sum
-        FROM edges e
+        FROM road_edges e
         JOIN affected_edges ae ON e.id = ae.id
         LEFT JOIN safety_points sp ON (
             sp.is_visible = TRUE
@@ -54,9 +54,9 @@ _UPDATE_EDGE_SCORES_SQL = text("""
     -- Step 3: safety_score と routing_cost を更新する
     --   safety_score = CLAMP(base_safety_score + dynamic_score, 0.01, 1.0)
     --   routing_cost = length × (1.0 / safety_score)
-    --     安全な道（score=0.9）→ cost が低い → 経路探索で選ばれやすい
-    --     危険な道（score=0.1）→ cost が高い → 経路探索で避けられる
-    UPDATE edges
+    --     安全な道（score=0.9）→ cost が低くなる → 経路探索で選ばれやすい
+    --     危険な道（score=0.1）→ cost が高くなる → 経路探索で避けられる
+    UPDATE road_edges
     SET
         dynamic_safety_score = edge_stats.score_sum,
         safety_score = GREATEST(0.01, LEAST(1.0, base_safety_score + edge_stats.score_sum)),
@@ -64,7 +64,7 @@ _UPDATE_EDGE_SCORES_SQL = text("""
             1.0 / GREATEST(0.01, LEAST(1.0, base_safety_score + edge_stats.score_sum))
         )
     FROM edge_stats
-    WHERE edges.id = edge_stats.edge_id
+    WHERE road_edges.id = edge_stats.edge_id
 """)
 
 
