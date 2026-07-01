@@ -1,9 +1,9 @@
 """Pydantic スキーマ定義
 
 フロントエンドとバックエンド間の API 契約を定義する。
-ここを変更する場合は、必ずフロント担当と合意してから行う。
-"""
+ここを変更する場合は、必ずフロント担当と合意してから行う。"""
 
+from datetime import datetime
 from typing import Optional
 from pydantic import BaseModel, Field
 
@@ -78,3 +78,34 @@ class AnalyzeResponse(BaseModel):
     updated_score: float = Field(
         ..., ge=0.0, le=1.0, description="更新後の安全スコア（暫定計算値）"
     )
+
+
+# ---------------------------------------------------------------------------
+# ハザード情報（地図表示用）
+# ---------------------------------------------------------------------------
+
+
+class HazardPoint(BaseModel):
+    """1件のハザードポイント（地図上に表示する危険/安全情報）"""
+
+    id: int = Field(..., description="SafetyPoint の ID")
+    lat: float = Field(..., description="緯度")
+    lng: float = Field(..., description="経度")
+    source_type: str = Field(..., description="情報源の種別（detection, crime_report 等）")
+    score_modifier: float = Field(
+        ..., description="安全スコアへの影響値（正=安全、負=危険）"
+    )
+    label: Optional[str] = Field(
+        None, description="検出ラベル（streetlight 等）。source_type が detection の場合のみ"
+    )
+    confidence: Optional[float] = Field(
+        None, description="YOLO の信頼度。source_type が detection の場合のみ"
+    )
+    updated_at: datetime = Field(..., description="最終更新日時")
+
+
+class HazardsResponse(BaseModel):
+    """ハザード情報一覧レスポンス"""
+
+    points: list[HazardPoint] = Field(..., description="ハザードポイントのリスト")
+    count: int = Field(..., description="返却されたポイント数")
