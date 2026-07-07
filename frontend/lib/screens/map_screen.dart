@@ -93,7 +93,6 @@ class _MapScreenState extends ConsumerState<MapScreen> {
 
   /// 地図タップ時の処理
   void _onMapTap(LatLng point) {
-    // タップ位置にマーカーを表示
     setState(() {
       _markers = {
         Marker(
@@ -109,7 +108,6 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       context: context,
       tappedPoint: point,
       onUploadPhoto: () {
-        // 「この場所の写真を投稿する」ボタンが押されたらカメラボトムシートを開く
         _showImageSourceBottomSheet();
       },
     ).then((_) {
@@ -232,7 +230,6 @@ class _MapScreenState extends ConsumerState<MapScreen> {
           GoogleMap(
             onMapCreated: (controller) {
               _mapController = controller;
-              // コントローラー取得後に現在地があれば移動
               if (_currentPosition != null && !_hasMovedToCurrentLocation) {
                 controller.animateCamera(
                   CameraUpdate.newLatLngZoom(_currentPosition!, 15.0),
@@ -246,11 +243,11 @@ class _MapScreenState extends ConsumerState<MapScreen> {
             ),
             onTap: _onMapTap,
             markers: _markers,
-            myLocationEnabled: true,       // Google Maps ネイティブ現在地マーカー
-            myLocationButtonEnabled: false, // 独自ボタンを使うため無効化
-            zoomControlsEnabled: false,     // 独自UIと重複するため無効化
+            myLocationEnabled: true,
+            myLocationButtonEnabled: false,
+            zoomControlsEnabled: false,
             compassEnabled: true,
-            mapToolbarEnabled: false,       // タップ時のGoogle MapsツールバーをOFF
+            mapToolbarEnabled: false,
           ),
 
           // 2. 上部：検索バー
@@ -270,7 +267,6 @@ class _MapScreenState extends ConsumerState<MapScreen> {
           // 5. GPSロード中インジケータ
           if (_isLoadingGps)
             Positioned(
-              // 検索バーの下に表示
               top: 80,
               left: 16,
               right: 16,
