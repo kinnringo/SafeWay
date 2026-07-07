@@ -1,9 +1,8 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:latlong2/latlong.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
 import '../providers/image_provider.dart';
 import '../core/theme.dart';
 import '../widgets/image_preview_card.dart';
@@ -19,22 +18,21 @@ class MapScreen extends ConsumerStatefulWidget {
 }
 
 class _MapScreenState extends ConsumerState<MapScreen> {
-  late final MapController _mapController;
+  GoogleMapController? _mapController;
   StreamSubscription<Position>? _positionStream;
 
   LatLng? _currentPosition;
   bool _isLoadingGps = true;
   bool _hasMovedToCurrentLocation = false;
 
-  /// タップされたマーカーの位置（表示中のみ non-null）
-  LatLng? _tappedPoint;
+  /// タップされたマーカーのSet（表示中のみ non-empty）
+  Set<Marker> _markers = {};
 
-  final LatLng _defaultCenter = const LatLng(36.3895, 139.0634); // 前橋駅
+  static const LatLng _defaultCenter = LatLng(36.3895, 139.0634); // 前橋駅
 
   @override
   void initState() {
     super.initState();
-    _mapController = MapController();
     _initLocationTracking();
   }
 
@@ -59,8 +57,12 @@ class _MapScreenState extends ConsumerState<MapScreen> {
           _currentPosition = LatLng(pos.latitude, pos.longitude);
           _isLoadingGps = false;
         });
-        _mapController.move(_currentPosition!, 15.0);
-        _hasMovedToCurrentLocation = true;
+        if (!_hasMovedToCurrentLocation) {
+          _mapController?.animateCamera(
+            CameraUpdate.newLatLngZoom(_currentPosition!, 15.0),
+          );
+          _hasMovedToCurrentLocation = true;
+        }
       }
     } catch (e) {
       // 初期取得失敗時はストリームへ
@@ -80,7 +82,9 @@ class _MapScreenState extends ConsumerState<MapScreen> {
         });
 
         if (!_hasMovedToCurrentLocation) {
-          _mapController.move(_currentPosition!, 15.0);
+          _mapController?.animateCamera(
+            CameraUpdate.newLatLngZoom(_currentPosition!, 15.0),
+          );
           _hasMovedToCurrentLocation = true;
         }
       }
@@ -88,9 +92,16 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   }
 
   /// 地図タップ時の処理
-  void _onMapTap(TapPosition tapPosition, LatLng point) {
+  void _onMapTap(LatLng point) {
+    // タップ位置にマーカーを表示
     setState(() {
-      _tappedPoint = point;
+      _markers = {
+        Marker(
+          markerId: const MarkerId('tapped_location'),
+          position: point,
+          icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
+        ),
+      };
     });
 
     // 場所情報ボトムシートを表示
@@ -105,7 +116,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       // ボトムシートが閉じたらマーカーをクリア
       if (mounted) {
         setState(() {
-          _tappedPoint = null;
+          _markers = {};
         });
       }
     });
@@ -163,7 +174,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   @override
   void dispose() {
     _positionStream?.cancel();
-    _mapController.dispose();
+    _mapController?.dispose();
     super.dispose();
   }
 
@@ -200,6 +211,15 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                   Text('GPA 2026 アプリ部門受賞を目指す「安心」ナビゲーション。'),
                   SizedBox(height: 8),
                   Text('Phase 3: 場所検索・タップ詳細・API仕様書対応'),
+                  SizedBox(height: 8),
+                  Text(
+                    '地図データ経路計算: © OpenStreetMap contributors (ODbL)',
+                    style: TextStyle(fontSize: 12),
+                  ),
+                  Text(
+                    'https://www.openstreetmap.org/copyright',
+                    style: TextStyle(fontSize: 12, color: Colors.blue),
+                  ),
                 ],
               );
             },
@@ -208,87 +228,29 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       ),
       body: Stack(
         children: [
-          // 1. 地図本体
-          FlutterMap(
-            mapController: _mapController,
-            options: MapOptions(
-              initialCenter: _defaultCenter,
-              initialZoom: 15.0,
-              onTap: _onMapTap, // ← タップ検出
+          // 1. Google Maps 本体
+          GoogleMap(
+            onMapCreated: (controller) {
+              _mapController = controller;
+              // コントローラー取得後に現在地があれば移動
+              if (_currentPosition != null && !_hasMovedToCurrentLocation) {
+                controller.animateCamera(
+                  CameraUpdate.newLatLngZoom(_currentPosition!, 15.0),
+                );
+                _hasMovedToCurrentLocation = true;
+              }
+            },
+            initialCameraPosition: const CameraPosition(
+              target: _defaultCenter,
+              zoom: 15.0,
             ),
-            children: [
-              TileLayer(
-                urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                userAgentPackageName: 'com.example.frontend',
-              ),
-
-              // 現在地マーカー
-              if (_currentPosition != null)
-                MarkerLayer(
-                  markers: [
-                    Marker(
-                      point: _currentPosition!,
-                      width: 60,
-                      height: 60,
-                      child: Stack(
-                        alignment: Alignment.center,
-                        children: [
-                          Container(
-                            width: 36,
-                            height: 36,
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              color: AppColors.blueAccentLight
-                                  .withValues(alpha: 0.3),
-                            ),
-                          ),
-                          Container(
-                            width: 18,
-                            height: 18,
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              color: AppColors.blueAccent,
-                              border: Border.all(
-                                  color: AppColors.white, width: 2),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: Colors.black.withValues(alpha: 0.25),
-                                  spreadRadius: 1,
-                                  blurRadius: 4,
-                                  offset: const Offset(0, 2),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-
-              // タップ位置マーカー
-              if (_tappedPoint != null)
-                MarkerLayer(
-                  markers: [
-                    Marker(
-                      point: _tappedPoint!,
-                      width: 44,
-                      height: 44,
-                      child: Container(
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: AppColors.primaryNavy.withValues(alpha: 0.15),
-                        ),
-                        child: const Icon(
-                          Icons.location_on,
-                          color: AppColors.primaryNavy,
-                          size: 32,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-            ],
+            onTap: _onMapTap,
+            markers: _markers,
+            myLocationEnabled: true,       // Google Maps ネイティブ現在地マーカー
+            myLocationButtonEnabled: false, // 独自ボタンを使うため無効化
+            zoomControlsEnabled: false,     // 独自UIと重複するため無効化
+            compassEnabled: true,
+            mapToolbarEnabled: false,       // タップ時のGoogle MapsツールバーをOFF
           ),
 
           // 2. 上部：検索バー

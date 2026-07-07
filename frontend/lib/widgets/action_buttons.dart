@@ -1,12 +1,11 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:latlong2/latlong.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
 import '../providers/location_provider.dart';
 import '../core/theme.dart';
 
 class ActionButtons extends ConsumerWidget {
-  final MapController mapController;
+  final GoogleMapController? mapController;
   final LatLng? currentPosition;
   final VoidCallback onCameraPressed;
 
@@ -32,8 +31,10 @@ class ActionButtons extends ConsumerWidget {
             FloatingActionButton(
               heroTag: 'currentLocationBtn',
               onPressed: () {
-                if (currentPosition != null) {
-                  mapController.move(currentPosition!, 16.0);
+                if (currentPosition != null && mapController != null) {
+                  mapController!.animateCamera(
+                    CameraUpdate.newLatLngZoom(currentPosition!, 16.0),
+                  );
                 } else {
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(

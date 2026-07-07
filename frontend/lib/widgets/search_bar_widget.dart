@@ -1,8 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:flutter_map/flutter_map.dart';
-import 'package:latlong2/latlong.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:http/http.dart' as http;
 import '../core/theme.dart';
 
@@ -36,9 +35,9 @@ class PlaceResult {
 /// マップ上部に表示する検索バーWidget
 ///
 /// OpenStreetMap Nominatim API（無料）を使って場所・住所を検索し、
-/// 選択した場所に地図をズームさせる。
+/// 選択した場所に Google Maps カメラをズームさせる。
 class MapSearchBar extends StatefulWidget {
-  final MapController mapController;
+  final GoogleMapController? mapController;
 
   const MapSearchBar({super.key, required this.mapController});
 
@@ -55,7 +54,6 @@ class _MapSearchBarState extends State<MapSearchBar>
 
   List<PlaceResult> _results = [];
   bool _isSearching = false;
-  bool _isExpanded = false;
   Timer? _debounceTimer;
 
   // Nominatim API の利用規約上、User-Agent は必須
@@ -71,14 +69,11 @@ class _MapSearchBarState extends State<MapSearchBar>
     _fadeAnim = CurvedAnimation(parent: _animController, curve: Curves.easeOut);
 
     _focusNode.addListener(() {
-      setState(() {
-        _isExpanded = _focusNode.hasFocus;
-      });
       if (_focusNode.hasFocus) {
         _animController.forward();
       } else {
         _animController.reverse();
-        _results = [];
+        setState(() => _results = []);
       }
     });
   }
@@ -136,9 +131,11 @@ class _MapSearchBarState extends State<MapSearchBar>
     });
   }
 
-  /// 検索結果の場所を選択して地図を移動
+  /// 検索結果の場所を選択して Google Maps カメラを移動
   void _selectPlace(PlaceResult place) {
-    widget.mapController.move(LatLng(place.lat, place.lng), 16.0);
+    widget.mapController?.animateCamera(
+      CameraUpdate.newLatLngZoom(LatLng(place.lat, place.lng), 16.0),
+    );
     _searchController.text = place.shortName;
     _focusNode.unfocus();
     setState(() => _results = []);
