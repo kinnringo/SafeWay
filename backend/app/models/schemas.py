@@ -22,14 +22,21 @@ class RouteRequest(BaseModel):
     end_lng: float = Field(..., description="目的地の経度")
 
 
-class RouteResponse(BaseModel):
-    """ルート検索レスポンス"""
+class RouteInfo(BaseModel):
+    """個別ルート情報"""
 
     route: dict = Field(..., description="GeoJSON FeatureCollection 形式のルートデータ")
     distance_m: float = Field(..., description="ルートの総距離（メートル）")
     safety_score: float = Field(
         ..., ge=0.0, le=1.0, description="ルート全体の安全スコア（0.0〜1.0）"
     )
+
+
+class RouteResponse(BaseModel):
+    """ルート検索レスポンス（安全＋最短）"""
+
+    safe_route: RouteInfo = Field(..., description="安全ルート情報")
+    shortest_route: RouteInfo = Field(..., description="最短ルート情報")
 
 
 # ---------------------------------------------------------------------------
