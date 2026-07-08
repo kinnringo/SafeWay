@@ -1,6 +1,6 @@
 services:
   db:
-    image: pgrouting/pgrouting:15-3.3-3.6
+    image: pgrouting/pgrouting:15-3.5-3.7
     container_name: safeway_db
     ports:
       - "${DB_PORT:-5432}:5432"
