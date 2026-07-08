@@ -4,6 +4,7 @@ import json
 import logging
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import text
+from sqlalchemy.exc import OperationalError, ProgrammingError
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -12,22 +13,34 @@ from app.models.schemas import RouteRequest, RouteResponse, RouteInfo
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-# GIST空間インデックス（<->演算子）を利用した、最も近い交差点ノードの高速検索クエリ
+# ---------------------------------------------------------------------------
+# SQL定義
+# ---------------------------------------------------------------------------
+
+# 近隣5本のエッジから最大10個の候補ノードを抽出し、
+# その中で本当に最も近いノードを選ぶ。
+# LIMIT 1 だけだと、最近接エッジの端点が最近接ノードとは限らないため、
+# 候補を広げて精度を確保する。
 _NEAREST_NODE_SQL = text("""
-    SELECT 
-        CASE 
-            WHEN ST_Distance(ST_StartPoint(geom), ST_SetSRID(ST_MakePoint(:lng, :lat), 4326)) < 
-                 ST_Distance(ST_EndPoint(geom), ST_SetSRID(ST_MakePoint(:lng, :lat), 4326))
-            THEN source_node
-            ELSE target_node
-        END AS node_id
-    FROM road_edges
-    ORDER BY geom <-> ST_SetSRID(ST_MakePoint(:lng, :lat), 4326)
+    WITH nearby_edges AS (
+        SELECT source_node, target_node, geom
+        FROM road_edges
+        ORDER BY geom <-> ST_SetSRID(ST_MakePoint(:lng, :lat), 4326)
+        LIMIT 5
+    ),
+    candidate_nodes AS (
+        SELECT source_node AS node_id, ST_StartPoint(geom) AS node_geom FROM nearby_edges
+        UNION ALL
+        SELECT target_node, ST_EndPoint(geom) FROM nearby_edges
+    )
+    SELECT node_id
+    FROM candidate_nodes
+    ORDER BY node_geom <-> ST_SetSRID(ST_MakePoint(:lng, :lat), 4326)
     LIMIT 1;
 """)
 
 # pgRouting Dijkstra 経路探索クエリのテンプレート
-# カラム名（routing_cost または length）は安全に動的構築する
+# {cost_column} はホワイトリスト検証済みの値のみが入る（_ALLOWED_COST_COLUMNS）
 _DIJKSTRA_PATH_SQL_TEMPLATE = """
     WITH path AS (
         SELECT seq, node, edge, cost, agg_cost
@@ -54,11 +67,28 @@ _DIJKSTRA_PATH_SQL_TEMPLATE = """
     ORDER BY p.seq;
 """
 
+# SQLインジェクション防止: cost_column に許可される値のホワイトリスト
+_ALLOWED_COST_COLUMNS = {"routing_cost", "length"}
+
+# ---------------------------------------------------------------------------
+# 内部ロジック
+# ---------------------------------------------------------------------------
+
 
 def _query_route_info(db: Session, start_node: int, end_node: int, cost_column: str) -> RouteInfo:
     """
     pgRoutingを実行し、指定されたコストに基づいて経路情報 (RouteInfo) を構築する。
+
+    Args:
+        db:          SQLAlchemy セッション
+        start_node:  出発ノードID
+        end_node:    到着ノードID
+        cost_column: コスト指標カラム名（_ALLOWED_COST_COLUMNS のいずれか）
     """
+    # ホワイトリスト検証（SQLインジェクション防止）
+    if cost_column not in _ALLOWED_COST_COLUMNS:
+        raise ValueError(f"Invalid cost_column: {cost_column!r}. Allowed: {_ALLOWED_COST_COLUMNS}")
+
     sql = _DIJKSTRA_PATH_SQL_TEMPLATE.format(cost_column=cost_column)
     result = db.execute(
         text(sql),
@@ -92,9 +122,11 @@ def _query_route_info(db: Session, start_node: int, end_node: int, cost_column: 
         geom = json.loads(geom_json_str)
         edge_coords = geom["coordinates"]
 
-        # 進行方向（逆方向か）の判定
-        # target_node == current_node の場合は、交差点を「逆走」しているため座標配列を反転する
-        is_reverse = (step.target_node == current_node)
+        # 進行方向の判定:
+        # pgr_dijkstra の node は「そのステップに進入するノード」を表す。
+        # source_node が進入ノードと一致 → 順方向（source → target）
+        # source_node が進入ノードと不一致 → 逆方向（target → source）→ 座標を反転
+        is_reverse = (step.source_node != current_node)
 
         if is_reverse:
             edge_coords = list(reversed(edge_coords))
@@ -142,65 +174,86 @@ def _query_route_info(db: Session, start_node: int, end_node: int, cost_column: 
     )
 
 
+# ---------------------------------------------------------------------------
+# エンドポイント
+# ---------------------------------------------------------------------------
+
+
 @router.post("/route", response_model=RouteResponse)
-async def search_route(request: RouteRequest, db: Session = Depends(get_db)):
+def search_route(request: RouteRequest, db: Session = Depends(get_db)):
     """
     出発地・目的地を受け取り、安全スコア優先（safe_route）と最短距離優先（shortest_route）の2本のルートを返す。
     """
-    # 1. 出発地に最も近い交差点ノードを検索
-    start_node_result = db.execute(
-        _NEAREST_NODE_SQL,
-        {"lng": request.start_lng, "lat": request.start_lat}
-    ).fetchone()
+    try:
+        # 1. 出発地に最も近い交差点ノードを検索
+        start_node_result = db.execute(
+            _NEAREST_NODE_SQL,
+            {"lng": request.start_lng, "lat": request.start_lat}
+        ).fetchone()
 
-    # 2. 目的地に最も近い交差点ノードを検索
-    end_node_result = db.execute(
-        _NEAREST_NODE_SQL,
-        {"lng": request.end_lng, "lat": request.end_lat}
-    ).fetchone()
+        # 2. 目的地に最も近い交差点ノードを検索
+        end_node_result = db.execute(
+            _NEAREST_NODE_SQL,
+            {"lng": request.end_lng, "lat": request.end_lat}
+        ).fetchone()
 
-    if not start_node_result or not end_node_result:
-        raise HTTPException(
-            status_code=404,
-            detail="Start or end location is too far from the road network or not found.",
-        )
+        if not start_node_result or not end_node_result:
+            raise HTTPException(
+                status_code=404,
+                detail="Start or end location is too far from the road network or not found.",
+            )
 
-    start_node_id = start_node_result.node_id
-    end_node_id = end_node_result.node_id
+        start_node_id = start_node_result.node_id
+        end_node_id = end_node_result.node_id
 
-    # 3. 出発ノードと到着ノードが同一の場合は、極小の直線ダミールートを返す（ゼロ除算・探索エラー回避）
-    if start_node_id == end_node_id:
-        geojson = {
-            "type": "FeatureCollection",
-            "features": [
-                {
-                    "type": "Feature",
-                    "geometry": {
-                        "type": "LineString",
-                        "coordinates": [
-                            [request.start_lng, request.start_lat],
-                            [request.end_lng, request.end_lat],
-                        ],
-                    },
-                    "properties": {
-                        "safety_score": 1.0,
-                    },
-                }
-            ],
-        }
-        zero_route = RouteInfo(route=geojson, distance_m=0.0, safety_score=1.0)
+        # 3. 出発ノードと到着ノードが同一の場合は、極小の直線ダミールートを返す（ゼロ除算・探索エラー回避）
+        if start_node_id == end_node_id:
+            geojson = {
+                "type": "FeatureCollection",
+                "features": [
+                    {
+                        "type": "Feature",
+                        "geometry": {
+                            "type": "LineString",
+                            "coordinates": [
+                                [request.start_lng, request.start_lat],
+                                [request.end_lng, request.end_lat],
+                            ],
+                        },
+                        "properties": {
+                            "safety_score": 1.0,
+                        },
+                    }
+                ],
+            }
+            zero_route = RouteInfo(route=geojson, distance_m=0.0, safety_score=1.0)
+            return RouteResponse(
+                safe_route=zero_route,
+                shortest_route=zero_route,
+            )
+
+        # 4. 安全優先ルートを探索 (コスト指標: routing_cost)
+        safe_route = _query_route_info(db, start_node_id, end_node_id, "routing_cost")
+
+        # 5. 最短ルートを探索 (コスト指標: length)
+        shortest_route = _query_route_info(db, start_node_id, end_node_id, "length")
+
         return RouteResponse(
-            safe_route=zero_route,
-            shortest_route=zero_route,
+            safe_route=safe_route,
+            shortest_route=shortest_route,
         )
 
-    # 4. 安全優先ルートを探索 (コスト指標: routing_cost)
-    safe_route = _query_route_info(db, start_node_id, end_node_id, "routing_cost")
-
-    # 5. 最短ルートを探索 (コスト指標: length)
-    shortest_route = _query_route_info(db, start_node_id, end_node_id, "length")
-
-    return RouteResponse(
-        safe_route=safe_route,
-        shortest_route=shortest_route,
-    )
+    except HTTPException:
+        raise
+    except (OperationalError, ProgrammingError) as e:
+        logger.error("Database error during route search: %s", e)
+        raise HTTPException(
+            status_code=503,
+            detail="Route search service is temporarily unavailable. Database connection error.",
+        )
+    except Exception as e:
+        logger.error("Unexpected error during route search: %s", e, exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail="An unexpected error occurred during route search.",
+        )

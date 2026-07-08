@@ -16,10 +16,10 @@ from pydantic import BaseModel, Field
 class RouteRequest(BaseModel):
     """ルート検索リクエスト"""
 
-    start_lat: float = Field(..., description="出発地の緯度")
-    start_lng: float = Field(..., description="出発地の経度")
-    end_lat: float = Field(..., description="目的地の緯度")
-    end_lng: float = Field(..., description="目的地の経度")
+    start_lat: float = Field(..., ge=-90.0, le=90.0, description="出発地の緯度")
+    start_lng: float = Field(..., ge=-180.0, le=180.0, description="出発地の経度")
+    end_lat: float = Field(..., ge=-90.0, le=90.0, description="目的地の緯度")
+    end_lng: float = Field(..., ge=-180.0, le=180.0, description="目的地の経度")
 
 
 class RouteInfo(BaseModel):
