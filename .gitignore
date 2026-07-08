@@ -58,3 +58,11 @@ docker-compose.override.yml
 ios/Pods/
 ios/.symlinks/
 ios/Podfile.lock
+
+# ==================================================
+# Google Maps APIキー管理（Git管理外の機密ファイル）
+# ==================================================
+# iOS: 実際のAPIキーはこのファイルに記述する（コピー元: Secrets.plist.template）
+frontend/ios/Runner/Secrets.plist
+# Web: テスト用。実際のAPIキーはこのファイルに記述する（コピー元: index.html.template）
+frontend/web/index.html
