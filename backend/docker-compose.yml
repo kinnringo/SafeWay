@@ -1,6 +1,6 @@
 services:
   db:
-    image: postgis/postgis:15-3.3
+    image: pgrouting/pgrouting:15-3.3-3.6
     container_name: safeway_db
     ports:
       - "${DB_PORT:-5432}:5432"

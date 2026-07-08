@@ -11,8 +11,9 @@ from app.routes import route, analyze, hazards
 def init_db():
     try:
         with engine.begin() as conn:
-            # PostGIS 拡張をロード
+            # PostGIS + pgRouting 拡張をロード
             conn.execute(text("CREATE EXTENSION IF NOT EXISTS postgis;"))
+            conn.execute(text("CREATE EXTENSION IF NOT EXISTS pgrouting;"))
         
         # モデルをロードして Base.metadata に登録する
         from app.models import db_models

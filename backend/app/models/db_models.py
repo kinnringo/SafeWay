@@ -87,7 +87,7 @@ class Edge(Base):
     __tablename__ = "road_edges"
 
     id = Column(Integer, primary_key=True, index=True)
-    osm_id = Column(BigInteger, unique=True, index=True, nullable=True)
+    osm_id = Column(BigInteger, index=True, nullable=True)
     source_node = Column(Integer, nullable=True)
     target_node = Column(Integer, nullable=True)
     length = Column(Float, nullable=False)
