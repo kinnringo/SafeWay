@@ -34,9 +34,54 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # 定数
 # ---------------------------------------------------------------------------
-DEFAULT_AREAS = ["新潟県, 日本", "群馬県, 日本"]
+# 県単位だと Overpass API のタイムアウトが発生するため、主要市区町村に分割して取得する
+NIIGATA_AREAS = [
+    "新潟市, 新潟県, 日本",
+    "長岡市, 新潟県, 日本",
+    "上越市, 新潟県, 日本",
+    "三条市, 新潟県, 日本",
+    "柏崎市, 新潟県, 日本",
+    "新発田市, 新潟県, 日本",
+    "燕市, 新潟県, 日本",
+    "村上市, 新潟県, 日本",
+    "十日町市, 新潟県, 日本",
+    "五泉市, 新潟県, 日本",
+    "佐渡市, 新潟県, 日本",
+    "南魚沼市, 新潟県, 日本",
+    "魚沼市, 新潟県, 日本",
+    "糸魚川市, 新潟県, 日本",
+    "妙高市, 新潟県, 日本",
+    "小千谷市, 新潟県, 日本",
+    "加茂市, 新潟県, 日本",
+    "見附市, 新潟県, 日本",
+    "阿賀野市, 新潟県, 日本",
+    "胎内市, 新潟県, 日本",
+]
+
+GUNMA_AREAS = [
+    "前橋市, 群馬県, 日本",
+    "高崎市, 群馬県, 日本",
+    "太田市, 群馬県, 日本",
+    "伊勢崎市, 群馬県, 日本",
+    "桐生市, 群馬県, 日本",
+    "館林市, 群馬県, 日本",
+    "渋川市, 群馬県, 日本",
+    "沼田市, 群馬県, 日本",
+    "藤岡市, 群馬県, 日本",
+    "富岡市, 群馬県, 日本",
+    "安中市, 群馬県, 日本",
+    "みどり市, 群馬県, 日本",
+]
+
+DEFAULT_AREAS = NIIGATA_AREAS + GUNMA_AREAS
 DEFAULT_MAX_EDGE_LENGTH_M = 100.0
 DEFAULT_BASE_SAFETY_SCORE = 0.5
+MAX_RETRIES = 3
+RETRY_WAIT_SECONDS = 30
+
+# OSMnx のグローバル設定
+ox.settings.timeout = 300        # Overpass API タイムアウト（秒）
+ox.settings.max_query_area_size = 50 * 1000 * 1000 * 1000  # クエリ分割閾値を大きめに
 
 
 # ---------------------------------------------------------------------------
@@ -98,7 +143,8 @@ def split_long_edges(G: nx.MultiDiGraph, max_length_m: float) -> nx.MultiDiGraph
                 G.add_node(curr_node, x=mid_point.x, y=mid_point.y)
 
             seg_geom = LineString([points[i], points[i + 1]])
-            seg_length = seg_geom.length * 111_320  # 度→メートルの概算変換
+            # 元のエッジ長をセグメント数で等分する（緯度による経度方向の縮みによる計算誤差を防止）
+            seg_length = float(length) / n_segments
 
             # OSMnx のエッジデータを引き継ぎつつ、長さとジオメトリだけ更新
             seg_data = dict(data)
@@ -133,7 +179,8 @@ def import_to_db(G: nx.MultiDiGraph) -> int:
     rows = []
     for u, v, data in G.edges(data=True):
         geom = data.get("geometry")
-        length_m = data.get("length", 0)
+        # 型エラー（numpy.float64等）を防ぐため、明示的に Python 標準の float/int に変換
+        length_val = float(data.get("length", 0))
 
         if geom is None:
             u_data = G.nodes[u]
@@ -144,22 +191,23 @@ def import_to_db(G: nx.MultiDiGraph) -> int:
             ])
 
         wkt = geom.wkt
-        source = node_id_map[u]
-        target = node_id_map[v]
+        source = int(node_id_map[u])
+        target = int(node_id_map[v])
 
         # OSM ID の取得（分割されたエッジにはない場合がある）
-        osm_id = data.get("osmid")
-        if isinstance(osm_id, list):
-            osm_id = osm_id[0]  # 複数ある場合は最初のものを使う
+        osm_id_raw = data.get("osmid")
+        if isinstance(osm_id_raw, list):
+            osm_id_raw = osm_id_raw[0]  # 複数ある場合は最初のものを使う
+        osm_id = int(osm_id_raw) if osm_id_raw is not None else None
 
-        base_score = DEFAULT_BASE_SAFETY_SCORE
-        routing_cost = length_m * (1.0 / base_score)
+        base_score = float(DEFAULT_BASE_SAFETY_SCORE)
+        routing_cost = float(length_val * (1.0 / base_score))
 
         rows.append({
             "osm_id": osm_id,
             "source_node": source,
             "target_node": target,
-            "length": length_m,
+            "length": length_val,
             "geom_wkt": wkt,
             "base_safety_score": base_score,
             "dynamic_safety_score": 0.0,
@@ -252,19 +300,41 @@ def main():
     logger.info("=" * 60)
 
     # 1. OSMnx でグラフを取得（エリアごとに取得してマージ）
-    combined_graph = None
-    for area in areas:
-        logger.info("[%s] ダウンロード中...", area)
-        t0 = time.time()
-        G = ox.graph_from_place(area, network_type="walk")
-        elapsed = time.time() - t0
-        logger.info("[%s] 取得完了: %d ノード, %d エッジ (%.1f秒)",
-                    area, len(G.nodes), len(G.edges), elapsed)
+    graphs = []
+    failed_areas = []
+    for i, area in enumerate(areas, 1):
+        logger.info("[%d/%d] [%s] ダウンロード中...", i, len(areas), area)
 
-        if combined_graph is None:
-            combined_graph = G
-        else:
-            combined_graph = nx.compose(combined_graph, G)
+        G = None
+        for attempt in range(1, MAX_RETRIES + 1):
+            try:
+                t0 = time.time()
+                G = ox.graph_from_place(area, network_type="walk")
+                elapsed = time.time() - t0
+                logger.info("[%s] 取得完了: %d ノード, %d エッジ (%.1f秒)",
+                            area, len(G.nodes), len(G.edges), elapsed)
+                break
+            except Exception as e:
+                logger.warning("[%s] 取得失敗 (試行 %d/%d): %s",
+                               area, attempt, MAX_RETRIES, e)
+                if attempt < MAX_RETRIES:
+                    logger.info("  %d秒後にリトライします...", RETRY_WAIT_SECONDS)
+                    time.sleep(RETRY_WAIT_SECONDS)
+                else:
+                    logger.error("[%s] %d回試行して取得できませんでした。スキップします。",
+                                 area, MAX_RETRIES)
+                    failed_areas.append(area)
+
+        if G is not None:
+            graphs.append(G)
+
+    if failed_areas:
+        logger.warning("以下のエリアの取得に失敗しました: %s", failed_areas)
+
+    combined_graph = None
+    if graphs:
+        logger.info("全 %d エリアのグラフを結合中...", len(graphs))
+        combined_graph = nx.compose_all(graphs)
 
     if combined_graph is None:
         logger.error("グラフの取得に失敗しました。")
