@@ -31,10 +31,10 @@
             android:name="flutterEmbedding"
             android:value="2" />
 
-        <!-- Google Maps API Key -->
+        <!-- Google Maps API Key (実際のキーは local.properties で設定 / Git管理外) -->
         <meta-data
             android:name="com.google.android.geo.API_KEY"
-            android:value="YOUR_GOOGLE_MAPS_API_KEY_HERE" />
+            android:value="${mapsApiKey}" />
 
         <!-- Geolocator サービス定義 (Android 14対応) -->
         <service

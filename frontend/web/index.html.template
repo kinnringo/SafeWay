@@ -32,6 +32,19 @@
   <title>SafeWay</title>
   <link rel="manifest" href="manifest.json">
 
+  <!--
+    ======================================================
+    【Web テスト用 Google Maps API キーの設定方法】
+    ======================================================
+    このファイル（index.html）はローカル専用で Git 管理外です。
+    
+    1. このファイルを直接編集して、以下の YOUR_GOOGLE_MAPS_API_KEY_HERE を
+       実際の API キーに置き換えてください。
+    2. このファイルは .gitignore に登録されているため、
+       編集内容が Git にコミット・プッシュされることは絶対にありません。
+    3. 他の開発者は index.html.template をコピーしてこのファイルを作成してください。
+    ======================================================
+  -->
   <!-- Google Maps JavaScript SDK (Web) -->
   <script src="https://maps.googleapis.com/maps/api/js?key=YOUR_GOOGLE_MAPS_API_KEY_HERE"></script>
 </head>
