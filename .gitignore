@@ -19,6 +19,7 @@ runs/
 # Data (large files)
 backend/data/*.graphml
 backend/data/*.osm
+backend/cache
 
 # Flutter
 frontend/.dart_tool/
