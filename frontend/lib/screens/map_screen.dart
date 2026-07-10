@@ -107,9 +107,6 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     showPlaceInfoSheet(
       context: context,
       tappedPoint: point,
-      onUploadPhoto: () {
-        _showImageSourceBottomSheet();
-      },
     ).then((_) {
       // ボトムシートが閉じたらマーカーをクリア
       if (mounted) {

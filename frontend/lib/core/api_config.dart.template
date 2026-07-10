@@ -1,0 +1,14 @@
+// ============================================================
+// このファイルはテンプレートです（Git 管理対象）。
+// 
+// セットアップ手順:
+//   1. このファイルを lib/core/api_config.dart という名前でコピーする
+//   2. コピーしたファイルの 'YOUR_GOOGLE_MAPS_API_KEY_HERE' を実際のAPIキーに書き換える
+//   3. コピーしたファイル（api_config.dart）は .gitignore で除外済みのため
+//      絶対に git commit されません
+// ============================================================
+class ApiConfig {
+  /// Google Maps Platform APIキー
+  /// Places APIなどのHTTPリクエストに使用する
+  static const String googleMapsApiKey = 'YOUR_GOOGLE_MAPS_API_KEY_HERE';
+}

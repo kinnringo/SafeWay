@@ -67,3 +67,5 @@ ios/Podfile.lock
 frontend/ios/Runner/Secrets.plist
 # Web: テスト用。実際のAPIキーはこのファイルに記述する（コピー元: index.html.template）
 frontend/web/index.html
+# Dart層のAPIキー設定ファイル（Places APIなどに使用。コピー元: api_config.dart.template）
+frontend/lib/core/api_config.dart
