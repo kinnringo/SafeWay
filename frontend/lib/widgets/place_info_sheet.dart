@@ -4,6 +4,7 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:http/http.dart' as http;
 import '../core/theme.dart';
 import '../core/api_config.dart';
+import 'package:pointer_interceptor/pointer_interceptor.dart';
 
 /// 場所情報のデータモデル
 class PlaceDetail {
@@ -41,7 +42,9 @@ Future<void> showPlaceInfoSheet({
     context: context,
     isScrollControlled: true,
     backgroundColor: Colors.transparent,
-    builder: (_) => _PlaceInfoSheet(tappedPoint: tappedPoint),
+    builder: (_) => PointerInterceptor(
+      child: _PlaceInfoSheet(tappedPoint: tappedPoint),
+    ),
   );
 }
 

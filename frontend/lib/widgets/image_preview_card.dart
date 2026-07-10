@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/image_provider.dart';
 import '../models/analyze_result.dart';
 import '../core/theme.dart';
+import 'package:pointer_interceptor/pointer_interceptor.dart';
 
 /// BoundingBoxを画像上に描画するPainter
 ///
@@ -143,12 +144,13 @@ class ImagePreviewCard extends ConsumerWidget {
       left: 12,
       bottom: 16,
       child: SafeArea(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // 解析結果のフィードバックテキスト（仕様書 Section 6-5 準拠）
-            if (hasResult || hasError)
+        child: PointerInterceptor(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // 解析結果のフィードバックテキスト（仕様書 Section 6-5 準拠）
+              if (hasResult || hasError)
               _buildFeedbackBadge(context),
 
             const SizedBox(height: 6),
@@ -274,8 +276,9 @@ class ImagePreviewCard extends ConsumerWidget {
           ],
         ),
       ),
-    );
-  }
+    ),
+  );
+}
 
   /// 解析完了後のフィードバックバッジ
   Widget _buildFeedbackBadge(BuildContext context) {

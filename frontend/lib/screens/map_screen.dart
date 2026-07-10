@@ -9,6 +9,7 @@ import '../widgets/image_preview_card.dart';
 import '../widgets/action_buttons.dart';
 import '../widgets/search_bar_widget.dart';
 import '../widgets/place_info_sheet.dart';
+import 'package:pointer_interceptor/pointer_interceptor.dart';
 
 class MapScreen extends ConsumerStatefulWidget {
   const MapScreen({super.key});
@@ -275,7 +276,6 @@ class _MapScreenState extends ConsumerState<MapScreen> {
             onCameraPressed: _showImageSourceBottomSheet,
           ),
 
-          // 5. GPSロード中インジケータ
           if (_isLoadingGps)
             Positioned(
               top: 80,
@@ -283,38 +283,40 @@ class _MapScreenState extends ConsumerState<MapScreen> {
               right: 16,
               child: SafeArea(
                 child: Center(
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                        vertical: 8, horizontal: 16),
-                    decoration: BoxDecoration(
-                      color: AppColors.white.withValues(alpha: 0.9),
-                      borderRadius: BorderRadius.circular(20),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.1),
-                          blurRadius: 4,
-                          offset: const Offset(0, 2),
-                        ),
-                      ],
-                    ),
-                    child: const Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        SizedBox(
-                          width: 14,
-                          height: 14,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        ),
-                        SizedBox(width: 10),
-                        Text(
-                          'GPS現在地を取得中...',
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w500,
-                            color: Colors.black87,
+                  child: PointerInterceptor(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          vertical: 8, horizontal: 16),
+                      decoration: BoxDecoration(
+                        color: AppColors.white.withValues(alpha: 0.9),
+                        borderRadius: BorderRadius.circular(20),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.1),
+                            blurRadius: 4,
+                            offset: const Offset(0, 2),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          SizedBox(
+                            width: 14,
+                            height: 14,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          ),
+                          SizedBox(width: 10),
+                          Text(
+                            'GPS現在地を取得中...',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w500,
+                              color: Colors.black87,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ),

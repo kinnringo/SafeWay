@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:http/http.dart' as http;
 import '../core/theme.dart';
+import 'package:pointer_interceptor/pointer_interceptor.dart';
 
 /// 場所・住所の検索結果
 class PlaceResult {
@@ -116,26 +117,28 @@ class _MapSearchBarState extends State<MapSearchBar> {
             child: SizedBox(
               // 検索バーと同じ幅（left:12, right:12 で 24px 引く）
               width: screenWidth - 24,
-              child: Material(
-                elevation: 8,
-                borderRadius: BorderRadius.circular(14),
-                clipBehavior: Clip.hardEdge,
-                child: ListView.separated(
-                  padding: EdgeInsets.zero,
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  itemCount: results.length,
-                  separatorBuilder: (_, __) => Divider(
-                    height: 1,
-                    color: Colors.grey.shade200,
+              child: PointerInterceptor(
+                child: Material(
+                  elevation: 8,
+                  borderRadius: BorderRadius.circular(14),
+                  clipBehavior: Clip.hardEdge,
+                  child: ListView.separated(
+                    padding: EdgeInsets.zero,
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    itemCount: results.length,
+                    separatorBuilder: (_, __) => Divider(
+                      height: 1,
+                      color: Colors.grey.shade200,
+                    ),
+                    itemBuilder: (context, index) {
+                      final place = results[index];
+                      return _SearchResultTile(
+                        place: place,
+                        onTap: () => _selectPlace(place),
+                      );
+                    },
                   ),
-                  itemBuilder: (context, index) {
-                    final place = results[index];
-                    return _SearchResultTile(
-                      place: place,
-                      onTap: () => _selectPlace(place),
-                    );
-                  },
                 ),
               ),
             ),
@@ -227,55 +230,56 @@ class _MapSearchBarState extends State<MapSearchBar> {
       left: 12,
       right: 12,
       child: SafeArea(
-        child: CompositedTransformTarget(
-          // Overlay 内の CompositedTransformFollower の追従基準点
-          link: _layerLink,
-          child: Container(
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(14),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.15),
-                  blurRadius: 12,
-                  offset: const Offset(0, 4),
-                ),
-              ],
-            ),
-            child: TextField(
-              controller: _searchController,
-              focusNode: _focusNode,
-              onChanged: _search,
-              style: const TextStyle(fontSize: 14, color: Colors.black87),
-              decoration: InputDecoration(
-                hintText: '場所・住所を検索...',
-                hintStyle: TextStyle(
-                  fontSize: 14,
-                  color: Colors.grey.shade500,
-                ),
-                prefixIcon: _isSearching
-                    ? const Padding(
-                        padding: EdgeInsets.all(12.0),
-                        child: SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        ),
-                      )
-                    : const Icon(Icons.search, color: AppColors.primaryNavy),
-                suffixIcon: _searchController.text.isNotEmpty
-                    ? IconButton(
-                        icon: const Icon(Icons.clear, color: Colors.grey),
-                        onPressed: () {
-                          _searchController.clear();
-                          _hideOverlay();
-                        },
-                      )
-                    : null,
-                border: InputBorder.none,
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 14,
+        child: PointerInterceptor(
+          child: CompositedTransformTarget(
+            link: _layerLink,
+            child: Container(
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(14),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.15),
+                    blurRadius: 12,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
+              ),
+              child: TextField(
+                controller: _searchController,
+                focusNode: _focusNode,
+                onChanged: _search,
+                style: const TextStyle(fontSize: 14, color: Colors.black87),
+                decoration: InputDecoration(
+                  hintText: '場所・住所を検索...',
+                  hintStyle: TextStyle(
+                    fontSize: 14,
+                    color: Colors.grey.shade500,
+                  ),
+                  prefixIcon: _isSearching
+                      ? const Padding(
+                          padding: EdgeInsets.all(12.0),
+                          child: SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          ),
+                        )
+                      : const Icon(Icons.search, color: AppColors.primaryNavy),
+                  suffixIcon: _searchController.text.isNotEmpty
+                      ? IconButton(
+                          icon: const Icon(Icons.clear, color: Colors.grey),
+                          onPressed: () {
+                            _searchController.clear();
+                            _hideOverlay();
+                          },
+                        )
+                      : null,
+                  border: InputBorder.none,
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 14,
+                  ),
                 ),
               ),
             ),
