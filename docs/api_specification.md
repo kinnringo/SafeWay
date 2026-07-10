@@ -138,14 +138,23 @@ OSM道路ネットワーク（新潟県・群馬県）と pgRouting エンジン
 |---|---|---|
 | `safe_route` | RouteInfo | 安全スコア優先のルート情報 |
 | `shortest_route` | RouteInfo | 最短距離優先のルート情報 |
+| `nearby_hazards` | HazardPoint[] | ルート沿い（100m以内）の危険情報（犯罪・野生動物等。道路インフラ情報は含まない） |
 
 **RouteInfo の構造:**
 
 | フィールド | 型 | 説明 |
 |---|---|---|
-| `route` | GeoJSON FeatureCollection | ルートのジオメトリデータ |
+| `route` | GeoJSON FeatureCollection | エッジ（道路区間）ごとの Feature を含むルートデータ。各 Feature に区間別の `safety_score` が付与される |
 | `distance_m` | float | ルートの総距離（メートル） |
-| `safety_score` | float (0.01〜1.0) | ルート全体の安全スコア（加重平均） |
+| `safety_score` | float (0.01〜1.0) | ルート全体の安全スコア（エッジ長による加重平均） |
+
+**FeatureCollection 内の各 Feature:**
+
+各 Feature は1つの道路区間（エッジ）を表す。フロントエンドでは `safety_score` に応じて区間ごとに色分け描画できる。
+
+| properties フィールド | 型 | 説明 |
+|---|---|---|
+| `safety_score` | float (0.01〜1.0) | この区間の安全スコア |
 
 ### レスポンス例
 
@@ -159,20 +168,30 @@ OSM道路ネットワーク（新潟県・群馬県）と pgRouting エンジン
           "type": "Feature",
           "geometry": {
             "type": "LineString",
-            "coordinates": [
-              [139.0634, 36.3895],
-              [139.0630, 36.3898],
-              [139.0602, 36.3908]
-            ]
+            "coordinates": [[139.0634, 36.3895], [139.0632, 36.3897]]
           },
-          "properties": {
-            "safety_score": 0.85
-          }
+          "properties": { "safety_score": 0.90 }
+        },
+        {
+          "type": "Feature",
+          "geometry": {
+            "type": "LineString",
+            "coordinates": [[139.0632, 36.3897], [139.0628, 36.3900]]
+          },
+          "properties": { "safety_score": 0.20 }
+        },
+        {
+          "type": "Feature",
+          "geometry": {
+            "type": "LineString",
+            "coordinates": [[139.0628, 36.3900], [139.0602, 36.3908]]
+          },
+          "properties": { "safety_score": 0.80 }
         }
       ]
     },
     "distance_m": 645.76,
-    "safety_score": 0.85
+    "safety_score": 0.63
   },
   "shortest_route": {
     "route": {
@@ -182,20 +201,35 @@ OSM道路ネットワーク（新潟県・群馬県）と pgRouting エンジン
           "type": "Feature",
           "geometry": {
             "type": "LineString",
-            "coordinates": [
-              [139.0634, 36.3895],
-              [139.0602, 36.3908]
-            ]
+            "coordinates": [[139.0634, 36.3895], [139.0620, 36.3902]]
           },
-          "properties": {
-            "safety_score": 0.50
-          }
+          "properties": { "safety_score": 0.50 }
+        },
+        {
+          "type": "Feature",
+          "geometry": {
+            "type": "LineString",
+            "coordinates": [[139.0620, 36.3902], [139.0602, 36.3908]]
+          },
+          "properties": { "safety_score": 0.50 }
         }
       ]
     },
     "distance_m": 528.86,
     "safety_score": 0.50
-  }
+  },
+  "nearby_hazards": [
+    {
+      "id": 5,
+      "lat": 36.3899,
+      "lng": 139.0629,
+      "source_type": "crime_report",
+      "score_modifier": -0.30,
+      "label": null,
+      "confidence": null,
+      "updated_at": "2026-07-01T12:00:00"
+    }
+  ]
 }
 ```
 

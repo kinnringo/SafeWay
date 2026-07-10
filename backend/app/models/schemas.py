@@ -33,10 +33,14 @@ class RouteInfo(BaseModel):
 
 
 class RouteResponse(BaseModel):
-    """ルート検索レスポンス（安全＋最短）"""
+    """ルート検索レスポンス（安全＋最短＋沿道ハザード）"""
 
     safe_route: RouteInfo = Field(..., description="安全ルート情報")
     shortest_route: RouteInfo = Field(..., description="最短ルート情報")
+    nearby_hazards: list["HazardPoint"] = Field(
+        default_factory=list,
+        description="ルート沿い（100m以内）の危険情報（犯罪・野生動物等。道路インフラ情報は含まない）"
+    )
 
 
 # ---------------------------------------------------------------------------
