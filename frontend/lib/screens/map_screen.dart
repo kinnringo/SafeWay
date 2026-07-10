@@ -229,27 +229,31 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       body: Stack(
         children: [
           // 1. Google Maps 本体
-          GoogleMap(
-            onMapCreated: (controller) {
-              _mapController = controller;
-              if (_currentPosition != null && !_hasMovedToCurrentLocation) {
-                controller.animateCamera(
-                  CameraUpdate.newLatLngZoom(_currentPosition!, 15.0),
-                );
-                _hasMovedToCurrentLocation = true;
-              }
-            },
-            initialCameraPosition: const CameraPosition(
-              target: _defaultCenter,
-              zoom: 15.0,
+          // AbsorbPointer でサジェスト表示中はネイティブタッチを遮断（PlatformView 貫通バグ対策）
+          AbsorbPointer(
+            absorbing: _isSuggestionsVisible,
+            child: GoogleMap(
+              onMapCreated: (controller) {
+                _mapController = controller;
+                if (_currentPosition != null && !_hasMovedToCurrentLocation) {
+                  controller.animateCamera(
+                    CameraUpdate.newLatLngZoom(_currentPosition!, 15.0),
+                  );
+                  _hasMovedToCurrentLocation = true;
+                }
+              },
+              initialCameraPosition: const CameraPosition(
+                target: _defaultCenter,
+                zoom: 15.0,
+              ),
+              onTap: _onMapTap,
+              markers: _markers,
+              myLocationEnabled: true,
+              myLocationButtonEnabled: false,
+              zoomControlsEnabled: false,
+              compassEnabled: true,
+              mapToolbarEnabled: false,
             ),
-            onTap: _onMapTap,
-            markers: _markers,
-            myLocationEnabled: true,
-            myLocationButtonEnabled: false,
-            zoomControlsEnabled: false,
-            compassEnabled: true,
-            mapToolbarEnabled: false,
           ),
 
           // 2. 上部：検索バー
