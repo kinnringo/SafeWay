@@ -8,7 +8,7 @@ from sqlalchemy.exc import OperationalError, ProgrammingError
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.models.schemas import RouteRequest, RouteResponse, RouteInfo
+from app.models.schemas import RouteRequest, RouteResponse, RouteInfo, HazardPoint
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -67,8 +67,35 @@ _DIJKSTRA_PATH_SQL_TEMPLATE = """
     ORDER BY p.seq;
 """
 
+# ルート沿いのエリア型ハザード（犯罪・野生動物等）を検索するクエリ
+# detection（街灯・信号機等）は含めない（エッジの safety_score に既に反映済み）
+_NEARBY_HAZARDS_SQL = text("""
+    SELECT
+        sp.id,
+        ST_Y(sp.geom) AS lat,
+        ST_X(sp.geom) AS lng,
+        sp.source_type,
+        sp.score_modifier,
+        sp.updated_at,
+        d.label,
+        d.confidence
+    FROM safety_points sp
+    LEFT JOIN detections d ON sp.detection_id = d.id
+    WHERE sp.is_visible = TRUE
+      AND sp.source_type != 'detection'
+      AND ST_DWithin(
+          ST_Transform(sp.geom, 3857),
+          ST_Transform(ST_GeomFromText(:route_wkt, 4326), 3857),
+          :radius_m
+      )
+    ORDER BY sp.updated_at DESC;
+""")
+
 # SQLインジェクション防止: cost_column に許可される値のホワイトリスト
 _ALLOWED_COST_COLUMNS = {"routing_cost", "length"}
+
+# 沿道ハザード検索の半径（メートル）
+_HAZARD_SEARCH_RADIUS_M = 100.0
 
 # ---------------------------------------------------------------------------
 # 内部ロジック
@@ -78,6 +105,7 @@ _ALLOWED_COST_COLUMNS = {"routing_cost", "length"}
 def _query_route_info(db: Session, start_node: int, end_node: int, cost_column: str) -> RouteInfo:
     """
     pgRoutingを実行し、指定されたコストに基づいて経路情報 (RouteInfo) を構築する。
+    各エッジ（道路区間）を個別の GeoJSON Feature として返し、区間ごとの安全スコアを保持する。
 
     Args:
         db:          SQLAlchemy セッション
@@ -103,7 +131,7 @@ def _query_route_info(db: Session, start_node: int, end_node: int, cost_column: 
             detail=f"No route found between the start and end points for {cost_column} metric."
         )
 
-    coordinates = []
+    features = []
     total_distance_m = 0.0
     weighted_safety_sum = 0.0
 
@@ -131,16 +159,26 @@ def _query_route_info(db: Session, start_node: int, end_node: int, cost_column: 
         if is_reverse:
             edge_coords = list(reversed(edge_coords))
 
-        # 中間ノードの重複を排除しながら座標を結合
-        if not coordinates:
-            coordinates.extend(edge_coords)
-        else:
-            coordinates.extend(edge_coords[1:])
+        # LineString には最低2点必要
+        if len(edge_coords) < 2:
+            continue
 
         length = step.length or 0.0
         safety_score = step.safety_score or 0.5
         total_distance_m += length
         weighted_safety_sum += safety_score * length
+
+        # エッジごとに個別の Feature を生成（区間別安全スコア付き）
+        features.append({
+            "type": "Feature",
+            "geometry": {
+                "type": "LineString",
+                "coordinates": edge_coords,
+            },
+            "properties": {
+                "safety_score": safety_score,
+            },
+        })
 
     if total_distance_m > 0:
         avg_safety_score = weighted_safety_sum / total_distance_m
@@ -153,18 +191,7 @@ def _query_route_info(db: Session, start_node: int, end_node: int, cost_column: 
     # GeoJSON FeatureCollection 形式に整形
     geojson = {
         "type": "FeatureCollection",
-        "features": [
-            {
-                "type": "Feature",
-                "geometry": {
-                    "type": "LineString",
-                    "coordinates": coordinates,
-                },
-                "properties": {
-                    "safety_score": avg_safety_score,
-                },
-            }
-        ],
+        "features": features,
     }
 
     return RouteInfo(
@@ -172,6 +199,68 @@ def _query_route_info(db: Session, start_node: int, end_node: int, cost_column: 
         distance_m=total_distance_m,
         safety_score=avg_safety_score
     )
+
+
+def _collect_all_coordinates(route_info: RouteInfo) -> list[list[float]]:
+    """
+    RouteInfo 内の全 Feature から座標を連結し、1本の連続した座標列として返す。
+    沿道ハザード検索用の LineString WKT を生成するために使用する。
+    """
+    all_coords = []
+    for feature in route_info.route.get("features", []):
+        coords = feature.get("geometry", {}).get("coordinates", [])
+        if not all_coords:
+            all_coords.extend(coords)
+        elif coords:
+            # 接続点の重複を除去
+            if all_coords[-1] == coords[0]:
+                all_coords.extend(coords[1:])
+            else:
+                all_coords.extend(coords)
+    return all_coords
+
+
+def _coords_to_linestring_wkt(coords: list[list[float]]) -> str:
+    """座標リストを WKT LINESTRING 文字列に変換する。"""
+    if len(coords) < 2:
+        return ""
+    point_strs = [f"{c[0]} {c[1]}" for c in coords]
+    return f"LINESTRING({', '.join(point_strs)})"
+
+
+def _query_nearby_hazards(db: Session, route_info: RouteInfo) -> list[HazardPoint]:
+    """
+    ルート沿い（_HAZARD_SEARCH_RADIUS_M 以内）のエリア型ハザードを検索する。
+    detection（街灯・信号機等）は除外し、犯罪・野生動物等のみを返す。
+    """
+    coords = _collect_all_coordinates(route_info)
+    if len(coords) < 2:
+        return []
+
+    route_wkt = _coords_to_linestring_wkt(coords)
+    if not route_wkt:
+        return []
+
+    result = db.execute(
+        _NEARBY_HAZARDS_SQL,
+        {"route_wkt": route_wkt, "radius_m": _HAZARD_SEARCH_RADIUS_M}
+    )
+    rows = result.all()
+
+    hazards = []
+    for row in rows:
+        hazards.append(HazardPoint(
+            id=row.id,
+            lat=row.lat,
+            lng=row.lng,
+            source_type=row.source_type,
+            score_modifier=row.score_modifier,
+            label=row.label,
+            confidence=row.confidence,
+            updated_at=row.updated_at,
+        ))
+
+    return hazards
 
 
 # ---------------------------------------------------------------------------
@@ -183,6 +272,7 @@ def _query_route_info(db: Session, start_node: int, end_node: int, cost_column: 
 def search_route(request: RouteRequest, db: Session = Depends(get_db)):
     """
     出発地・目的地を受け取り、安全スコア優先（safe_route）と最短距離優先（shortest_route）の2本のルートを返す。
+    加えて、ルート沿いのエリア型ハザード情報（犯罪・野生動物等）を nearby_hazards として返す。
     """
     try:
         # 1. 出発地に最も近い交差点ノードを検索
@@ -230,6 +320,7 @@ def search_route(request: RouteRequest, db: Session = Depends(get_db)):
             return RouteResponse(
                 safe_route=zero_route,
                 shortest_route=zero_route,
+                nearby_hazards=[],
             )
 
         # 4. 安全優先ルートを探索 (コスト指標: routing_cost)
@@ -238,9 +329,13 @@ def search_route(request: RouteRequest, db: Session = Depends(get_db)):
         # 5. 最短ルートを探索 (コスト指標: length)
         shortest_route = _query_route_info(db, start_node_id, end_node_id, "length")
 
+        # 6. 安全ルート沿いのエリア型ハザードを検索
+        nearby_hazards = _query_nearby_hazards(db, safe_route)
+
         return RouteResponse(
             safe_route=safe_route,
             shortest_route=shortest_route,
+            nearby_hazards=nearby_hazards,
         )
 
     except HTTPException:
