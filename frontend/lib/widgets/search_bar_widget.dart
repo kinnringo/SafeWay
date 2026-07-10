@@ -39,7 +39,15 @@ class PlaceResult {
 class MapSearchBar extends StatefulWidget {
   final GoogleMapController? mapController;
 
-  const MapSearchBar({super.key, required this.mapController});
+  /// サジェストリストの表示／非表示が切り替わった時に呼ばれるコールバック
+  /// true = 表示中、false = 非表示
+  final ValueChanged<bool>? onSuggestionsVisibilityChanged;
+
+  const MapSearchBar({
+    super.key,
+    required this.mapController,
+    this.onSuggestionsVisibilityChanged,
+  });
 
   @override
   State<MapSearchBar> createState() => _MapSearchBarState();
@@ -74,6 +82,8 @@ class _MapSearchBarState extends State<MapSearchBar>
       } else {
         _animController.reverse();
         setState(() => _results = []);
+        // フォーカスが外れたらサジェスト非表示を通知
+        widget.onSuggestionsVisibilityChanged?.call(false);
       }
     });
   }
@@ -122,6 +132,10 @@ class _MapSearchBarState extends State<MapSearchBar>
                 data.map((e) => PlaceResult.fromJson(e as Map<String, dynamic>)).toList();
             _isSearching = false;
           });
+          // 検索結果が表示されたことを通知
+          if (_results.isNotEmpty) {
+            widget.onSuggestionsVisibilityChanged?.call(true);
+          }
         } else {
           setState(() => _isSearching = false);
         }
@@ -139,6 +153,8 @@ class _MapSearchBarState extends State<MapSearchBar>
     _searchController.text = place.shortName;
     _focusNode.unfocus();
     setState(() => _results = []);
+    // 選択完了 → サジェスト非表示を通知
+    widget.onSuggestionsVisibilityChanged?.call(false);
   }
 
   @override
@@ -190,6 +206,8 @@ class _MapSearchBarState extends State<MapSearchBar>
                           onPressed: () {
                             _searchController.clear();
                             setState(() => _results = []);
+                            // クリアしたらサジェスト非表示を通知
+                            widget.onSuggestionsVisibilityChanged?.call(false);
                           },
                         )
                       : null,

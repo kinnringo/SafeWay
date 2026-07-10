@@ -28,6 +28,9 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   /// タップされたマーカーのSet（表示中のみ non-empty）
   Set<Marker> _markers = {};
 
+  /// サジェストリストが表示中の場合 true（地図タップを無効化する）
+  bool _isSuggestionsVisible = false;
+
   static const LatLng _defaultCenter = LatLng(36.3895, 139.0634); // 前橋駅
 
   @override
@@ -93,6 +96,8 @@ class _MapScreenState extends ConsumerState<MapScreen> {
 
   /// 地図タップ時の処理
   void _onMapTap(LatLng point) {
+    // サジェスト表示中は地図タップを無視（㛂通バグ対策）
+    if (_isSuggestionsVisible) return;
     setState(() {
       _markers = {
         Marker(
@@ -248,7 +253,12 @@ class _MapScreenState extends ConsumerState<MapScreen> {
           ),
 
           // 2. 上部：検索バー
-          MapSearchBar(mapController: _mapController),
+          MapSearchBar(
+            mapController: _mapController,
+            onSuggestionsVisibilityChanged: (isVisible) {
+              setState(() => _isSuggestionsVisible = isVisible);
+            },
+          ),
 
           // 3. 画像プレビューカード（選択された時だけ）
           if (imageState.image != null)
