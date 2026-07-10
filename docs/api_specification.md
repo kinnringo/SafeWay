@@ -117,54 +117,85 @@
 
 ## POST /api/route
 
-出発地と目的地を受け取り、ルートを返す。
+出発地と目的地を受け取り、安全スコア優先（`safe_route`）と最短距離優先（`shortest_route`）の2つのルートを返す。
 
-### 実装状況: ⚠️ ダミー実装（直線ルートを返す）
+### 実装状況: ✅ 実装済み
 
-OSM道路データのインポートとpgRoutingエンジンの接続後に本実装を行う予定。
-本実装後は安全ルートと最短ルートの両方を返す設計にする。
+OSM道路ネットワーク（新潟県・群馬県）と pgRouting エンジンを利用した経路探索機能が実装されている。
 
 ### リクエスト形式: `application/json`
 
 | パラメータ | 型 | 必須 | 説明 |
 |---|---|---|---|
-| `start_lat` | float | ✅ | 出発地の緯度 |
-| `start_lng` | float | ✅ | 出発地の経度 |
-| `end_lat` | float | ✅ | 目的地の緯度 |
-| `end_lng` | float | ✅ | 目的地の経度 |
+| `start_lat` | float (ge=-90.0, le=90.0) | ✅ | 出発地の緯度 |
+| `start_lng` | float (ge=-180.0, le=180.0) | ✅ | 出発地の経度 |
+| `end_lat` | float (ge=-90.0, le=90.0) | ✅ | 目的地の緯度 |
+| `end_lng` | float (ge=-180.0, le=180.0) | ✅ | 目的地の経度 |
 
 ### レスポンス
 
 | フィールド | 型 | 説明 |
 |---|---|---|
+| `safe_route` | RouteInfo | 安全スコア優先のルート情報 |
+| `shortest_route` | RouteInfo | 最短距離優先のルート情報 |
+
+**RouteInfo の構造:**
+
+| フィールド | 型 | 説明 |
+|---|---|---|
 | `route` | GeoJSON FeatureCollection | ルートのジオメトリデータ |
 | `distance_m` | float | ルートの総距離（メートル） |
-| `safety_score` | float (0.0〜1.0) | ルート全体の安全スコア |
+| `safety_score` | float (0.01〜1.0) | ルート全体の安全スコア（加重平均） |
 
-### レスポンス例（現在のダミー実装）
+### レスポンス例
 
 ```json
 {
-  "route": {
-    "type": "FeatureCollection",
-    "features": [
-      {
-        "type": "Feature",
-        "geometry": {
-          "type": "LineString",
-          "coordinates": [
-            [139.0634, 36.3900],
-            [139.0700, 36.3950]
-          ]
-        },
-        "properties": {
-          "safety_score": 0.5
+  "safe_route": {
+    "route": {
+      "type": "FeatureCollection",
+      "features": [
+        {
+          "type": "Feature",
+          "geometry": {
+            "type": "LineString",
+            "coordinates": [
+              [139.0634, 36.3895],
+              [139.0630, 36.3898],
+              [139.0602, 36.3908]
+            ]
+          },
+          "properties": {
+            "safety_score": 0.85
+          }
         }
-      }
-    ]
+      ]
+    },
+    "distance_m": 645.76,
+    "safety_score": 0.85
   },
-  "distance_m": 0.0,
-  "safety_score": 0.5
+  "shortest_route": {
+    "route": {
+      "type": "FeatureCollection",
+      "features": [
+        {
+          "type": "Feature",
+          "geometry": {
+            "type": "LineString",
+            "coordinates": [
+              [139.0634, 36.3895],
+              [139.0602, 36.3908]
+            ]
+          },
+          "properties": {
+            "safety_score": 0.50
+          }
+        }
+      ]
+    },
+    "distance_m": 528.86,
+    "safety_score": 0.50
+  }
 }
 ```
 
@@ -259,4 +290,4 @@ OSM道路データのインポートとpgRoutingエンジンの接続後に本�
 | `detections` | YOLO検出結果の保存先 |
 | `safety_points` | 安全/危険ポイントの統合テーブル（detections, crime_reports からリンク） |
 | `crime_reports` | 犯罪情報（行政データ連携用、未実装） |
-| `edges` | OSM道路ネットワーク（pgRouting用、データ未投入） |
+| `road_edges` | OSM道路ネットワーク（pgRouting用、新潟県・群馬県データ投入済み） |
