@@ -235,7 +235,9 @@ class _MapScreenState extends ConsumerState<MapScreen> {
             absorbing: _isSuggestionsVisible,
             child: GoogleMap(
               onMapCreated: (controller) {
-                _mapController = controller;
+                setState(() {
+                  _mapController = controller;
+                });
                 if (_currentPosition != null && !_hasMovedToCurrentLocation) {
                   controller.animateCamera(
                     CameraUpdate.newLatLngZoom(_currentPosition!, 15.0),

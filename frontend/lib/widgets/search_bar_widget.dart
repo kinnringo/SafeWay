@@ -73,8 +73,14 @@ class _MapSearchBarState extends State<MapSearchBar> {
     super.initState();
     _focusNode.addListener(() {
       if (!_focusNode.hasFocus) {
-        // フォーカスが外れたらサジェストを閉じる
-        _hideOverlay();
+        // タップ完了(PointerUp)を待ってからオーバーレイを閉じる。
+        // 即座に閉じると PointerDown でフォーカスが外れた時点でオーバーレイが
+        // 消えてしまい、サジェストの onTap が届かなくなるため遅延を入れる。
+        Future.delayed(const Duration(milliseconds: 250), () {
+          if (mounted && !_focusNode.hasFocus) {
+            _hideOverlay();
+          }
+        });
       }
     });
   }
