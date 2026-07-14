@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:http/http.dart' as http;
@@ -12,13 +13,27 @@ class PlaceResult {
   final String shortName;
   final double lat;
   final double lng;
+  final double? distanceMeters; // 現在地からの距離（メートル）
 
   const PlaceResult({
     required this.displayName,
     required this.shortName,
     required this.lat,
     required this.lng,
+    this.distanceMeters,
   });
+
+  PlaceResult copyWith({
+    double? distanceMeters,
+  }) {
+    return PlaceResult(
+      displayName: displayName,
+      shortName: shortName,
+      lat: lat,
+      lng: lng,
+      distanceMeters: distanceMeters ?? this.distanceMeters,
+    );
+  }
 
   factory PlaceResult.fromJson(Map<String, dynamic> json) {
     final displayName = json['display_name'] as String? ?? '';
@@ -38,6 +53,7 @@ class PlaceResult {
 /// GoogleMap（PlatformView）のタッチ横取り問題を回避する。
 class MapSearchBar extends StatefulWidget {
   final GoogleMapController? mapController;
+  final LatLng? currentPosition;
 
   /// サジェストリストの表示／非表示が切り替わった時に呼ばれるコールバック
   /// true = 表示中、false = 非表示
@@ -46,6 +62,7 @@ class MapSearchBar extends StatefulWidget {
   const MapSearchBar({
     super.key,
     required this.mapController,
+    this.currentPosition,
     this.onSuggestionsVisibilityChanged,
   });
 
@@ -181,13 +198,24 @@ class _MapSearchBarState extends State<MapSearchBar> {
       setState(() => _isSearching = true);
 
       try {
-        final uri = Uri.https('nominatim.openstreetmap.org', '/search', {
+        final Map<String, String> queryParams = {
           'q': query,
           'format': 'json',
           'limit': '5',
           'accept-language': 'ja',
           'countrycodes': 'jp', // 日本に絞る
-        });
+        };
+
+        // 現在地がある場合、Nominatim にその周辺を優先する viewbox パラメータを指定
+        if (widget.currentPosition != null) {
+          final cur = widget.currentPosition!;
+          const double delta = 0.09; // 約10km範囲
+          queryParams['viewbox'] =
+              '${cur.longitude - delta},${cur.latitude + delta},${cur.longitude + delta},${cur.latitude - delta}';
+          queryParams['bounded'] = '0'; // 0: 優先度を上げる (1: その範囲のみに制限)
+        }
+
+        final uri = Uri.https('nominatim.openstreetmap.org', '/search', queryParams);
 
         final response = await http.get(
           uri,
@@ -198,9 +226,27 @@ class _MapSearchBarState extends State<MapSearchBar> {
 
         if (response.statusCode == 200) {
           final List<dynamic> data = jsonDecode(response.body);
-          final newResults = data
+          List<PlaceResult> newResults = data
               .map((e) => PlaceResult.fromJson(e as Map<String, dynamic>))
               .toList();
+
+          // 現在地からの距離計算とソート
+          if (widget.currentPosition != null) {
+            final cur = widget.currentPosition!;
+            newResults = newResults.map((place) {
+              final dist = _calculateDistance(
+                cur.latitude,
+                cur.longitude,
+                place.lat,
+                place.lng,
+              );
+              return place.copyWith(distanceMeters: dist);
+            }).toList();
+
+            // 距離の昇順 (近い順) にソート
+            newResults.sort((a, b) =>
+                (a.distanceMeters ?? 0.0).compareTo(b.distanceMeters ?? 0.0));
+          }
 
           setState(() => _isSearching = false);
 
@@ -213,6 +259,19 @@ class _MapSearchBarState extends State<MapSearchBar> {
         if (mounted) setState(() => _isSearching = false);
       }
     });
+  }
+
+  /// 2点間の距離を計算 (Haversine formula, 単位: メートル)
+  double _calculateDistance(
+      double lat1, double lon1, double lat2, double lon2) {
+    const p = 0.017453292519943295; // Math.PI / 180
+    final a = 0.5 -
+        math.cos((lat2 - lat1) * p) / 2 +
+        math.cos(lat1 * p) *
+            math.cos(lat2 * p) *
+            (1 - math.cos((lon2 - lon1) * p)) /
+            2;
+    return 12742 * math.asin(math.sqrt(a)) * 1000;
   }
 
   /// 検索結果の場所を選択して Google Maps カメラを移動
@@ -306,6 +365,15 @@ class _SearchResultTile extends StatelessWidget {
 
   const _SearchResultTile({required this.place, required this.onTap});
 
+  String _formatDistance(double meters) {
+    if (meters < 1000) {
+      return '${meters.toStringAsFixed(0)}m';
+    } else {
+      final kms = meters / 1000;
+      return '${kms.toStringAsFixed(1)}km';
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return InkWell(
@@ -347,6 +415,18 @@ class _SearchResultTile extends StatelessWidget {
                 ],
               ),
             ),
+            if (place.distanceMeters != null) ...[
+              const SizedBox(width: 8),
+              Text(
+                _formatDistance(place.distanceMeters!),
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Colors.grey.shade600,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+            const SizedBox(width: 4),
             const Icon(
               Icons.chevron_right,
               color: Colors.grey,

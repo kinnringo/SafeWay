@@ -47,6 +47,25 @@
   -->
   <!-- Google Maps JavaScript SDK (Web) -->
   <script src="https://maps.googleapis.com/maps/api/js?key=YOUR_GOOGLE_MAPS_API_KEY_HERE"></script>
+  <script>
+    // Google Maps の初期化時に割り込み、POIのクリック（情報ポップアップ）を無効化する
+    (function() {
+      var checkInterval = setInterval(function() {
+        if (window.google && window.google.maps) {
+          clearInterval(checkInterval);
+          var OriginalMap = google.maps.Map;
+          google.maps.Map = function(element, options) {
+            options = options || {};
+            // clickableIcons: false により、POIをクリックした際の
+            // デフォルトインフォウィンドウ（「Googleマップで見る」等）の表示を無効化します。
+            options.clickableIcons = false;
+            return new OriginalMap(element, options);
+          };
+          google.maps.Map.prototype = OriginalMap.prototype;
+        }
+      }, 50);
+    })();
+  </script>
 </head>
 <body>
   <!--

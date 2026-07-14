@@ -262,6 +262,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
           // 2. 上部：検索バー
           MapSearchBar(
             mapController: _mapController,
+            currentPosition: _currentPosition,
             onSuggestionsVisibilityChanged: (isVisible) {
               setState(() => _isSuggestionsVisible = isVisible);
             },
