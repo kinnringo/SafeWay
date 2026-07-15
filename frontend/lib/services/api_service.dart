@@ -4,6 +4,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
 import '../models/analyze_result.dart';
+import '../models/route_models.dart';
 
 final apiServiceProvider = Provider<ApiService>((ref) => ApiService());
 
@@ -87,7 +88,53 @@ class ApiService {
     return _sendRequest(request);
   }
 
+  /// 経路探索: POST /api/route
+  ///
+  /// [startLat] 出発地の緯度
+  /// [startLng] 出発地の経度
+  /// [endLat]   目的地の緯度
+  /// [endLng]   目的地の経度
+  ///
+  /// 安全優先ルート・最短ルート・沿道ハザード情報をまとめた [RouteResponse] を返す。
+  Future<RouteResponse> fetchRoute({
+    required double startLat,
+    required double startLng,
+    required double endLat,
+    required double endLng,
+  }) async {
+    final uri = Uri.parse('$baseUrl/route');
+    final body = jsonEncode({
+      'start_lat': startLat,
+      'start_lng': startLng,
+      'end_lat': endLat,
+      'end_lng': endLng,
+    });
+
+    final response = await http.post(
+      uri,
+      headers: {'Content-Type': 'application/json'},
+      body: body,
+    );
+
+    if (response.statusCode == 200) {
+      final jsonResponse =
+          jsonDecode(response.body) as Map<String, dynamic>;
+      return RouteResponse.fromJson(jsonResponse);
+    } else if (response.statusCode == 400) {
+      throw Exception(
+          'ルート探索エラー (400): 指定座標が道路ネットワーク外の可能性があります。\n${response.body}');
+    } else if (response.statusCode == 404) {
+      throw Exception(
+          'ルートが見つかりません (404): 出発地または目的地が道路網から離れすぎています。');
+    } else if (response.statusCode == 503) {
+      throw Exception('サービス一時停止 (503): データベースに接続できません。');
+    } else {
+      throw Exception('サーバーエラー: HTTP ${response.statusCode}');
+    }
+  }
+
   /// 共通: リクエスト送信とレスポンスのパース
+
   Future<AnalyzeResponse> _sendRequest(http.MultipartRequest request) async {
     final response = await request.send();
     final responseData = await response.stream.bytesToString();

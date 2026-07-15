@@ -3,13 +3,18 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:pointer_interceptor/pointer_interceptor.dart';
 import '../providers/image_provider.dart';
 import '../core/theme.dart';
 import '../widgets/image_preview_card.dart';
 import '../widgets/action_buttons.dart';
 import '../widgets/search_bar_widget.dart';
 import '../widgets/place_info_sheet.dart';
-import 'package:pointer_interceptor/pointer_interceptor.dart';
+import '../models/route_models.dart';
+import '../services/api_service.dart';
+
+/// 選択中のルート種別
+enum _RouteType { safe, shortest }
 
 class MapScreen extends ConsumerStatefulWidget {
   const MapScreen({super.key});
@@ -29,10 +34,201 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   /// タップされたマーカーのSet（表示中のみ non-empty）
   Set<Marker> _markers = {};
 
+  /// ルート描画用のポリラインセット
+  Set<Polyline> _polylines = {};
+
+  /// 現在表示中のルートデータ（比較カード・ナビ用）
+  RouteResponse? _currentRouteResponse;
+
+  /// ルート探索中フラグ
+  bool _isLoadingRoute = false;
+
   /// サジェストリストが表示中の場合 true（地図タップを無効化する）
   bool _isSuggestionsVisible = false;
 
+  /// 選択中のルート種別（比較カードでユーザーが選択）
+  _RouteType _selectedRouteType = _RouteType.safe;
+
+  /// ナビ案内中フラグ
+  bool _isNavigating = false;
+
+
   static const LatLng _defaultCenter = LatLng(36.3895, 139.0634); // 前橋駅
+
+  // ─────────────────────────────────────────────────────────────────────
+  // ルートの色・描画ロジック
+  // ─────────────────────────────────────────────────────────────────────
+
+  /// 安全スコアから区間の色を返す
+  Color _safetyScoreToColor(double score) {
+    if (score >= 0.7) {
+      return const Color(0xFF2ECC71); // 緑: 安全
+    } else if (score >= 0.4) {
+      return const Color(0xFFF39C12); // オレンジ: やや危険
+    } else {
+      return const Color(0xFFE74C3C); // 赤: 危険
+    }
+  }
+
+  /// ルートのポリラインを生成して地図に反映する
+  void _updateRoutePolylines(RouteResponse response) {
+    final Set<Polyline> newPolylines = {};
+
+    // 1. 安全優先ルート: 区間ごとにループして safety_score で色分け
+    for (var i = 0; i < response.safeRoute.features.length; i++) {
+      final feature = response.safeRoute.features[i];
+      if (feature.points.length < 2) continue;
+      newPolylines.add(
+        Polyline(
+          polylineId: PolylineId('safe_route_segment_$i'),
+          points: feature.points,
+          color: _safetyScoreToColor(feature.safetyScore),
+          width: 6,
+          zIndex: 10,
+          startCap: Cap.roundCap,
+          endCap: Cap.roundCap,
+          jointType: JointType.round,
+        ),
+      );
+    }
+
+    // 2. 最短距離ルート: allPoints を使い単色（青）の1本線で描画
+    final shortestPoints = response.shortestRoute.allPoints;
+    if (shortestPoints.length >= 2) {
+      newPolylines.add(
+        Polyline(
+          polylineId: const PolylineId('shortest_route'),
+          points: shortestPoints,
+          color: const Color(0xFF3498DB), // スカイブルー
+          width: 4,
+          zIndex: 5,
+          startCap: Cap.roundCap,
+          endCap: Cap.roundCap,
+          jointType: JointType.round,
+        ),
+      );
+    }
+
+    setState(() {
+      _currentRouteResponse = response;
+      _polylines = newPolylines;
+      _selectedRouteType = _RouteType.safe; // 毎回安全優先をデフォルト選択
+    });
+  }
+
+  // ─────────────────────────────────────────────────────────────────────
+  // カメラ操作
+  // ─────────────────────────────────────────────────────────────────────
+
+  /// ルート全体が画面に収まるようにカメラをフィットする
+  Future<void> _fitRouteBounds(RouteResponse response) async {
+    if (_mapController == null) return;
+
+    final allPoints = [
+      ...response.safeRoute.allPoints,
+      ...response.shortestRoute.allPoints,
+    ];
+    if (allPoints.isEmpty) return;
+
+    double minLat = allPoints.first.latitude;
+    double minLng = allPoints.first.longitude;
+    double maxLat = allPoints.first.latitude;
+    double maxLng = allPoints.first.longitude;
+
+    for (final point in allPoints) {
+      if (point.latitude < minLat) minLat = point.latitude;
+      if (point.latitude > maxLat) maxLat = point.latitude;
+      if (point.longitude < minLng) minLng = point.longitude;
+      if (point.longitude > maxLng) maxLng = point.longitude;
+    }
+
+    final bounds = LatLngBounds(
+      southwest: LatLng(minLat, minLng),
+      northeast: LatLng(maxLat, maxLng),
+    );
+
+    await _mapController!.animateCamera(
+      CameraUpdate.newLatLngBounds(bounds, 80.0),
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────────────────
+  // ルート探索
+  // ─────────────────────────────────────────────────────────────────────
+
+  /// 外部（ボトムシートのルートボタン）からルート探索を起動するエントリポイント
+  Future<void> fetchAndDrawRoute({
+    required LatLng start,
+    required LatLng end,
+  }) async {
+    if (_isLoadingRoute) return;
+    setState(() {
+      _isLoadingRoute = true;
+    });
+
+    try {
+      final apiService = ref.read(apiServiceProvider);
+      final response = await apiService.fetchRoute(
+        startLat: start.latitude,
+        startLng: start.longitude,
+        endLat: end.latitude,
+        endLng: end.longitude,
+      );
+      _updateRoutePolylines(response);
+      await _fitRouteBounds(response);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('ルート探索に失敗しました: $e'),
+            backgroundColor: Colors.red.shade700,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isLoadingRoute = false);
+    }
+  }
+
+  /// ルートと関連状態をすべてクリアする
+  void _clearRoute() {
+    setState(() {
+      _polylines = {};
+      _currentRouteResponse = null;
+      _isNavigating = false;
+      _markers = {};
+    });
+  }
+
+  // ─────────────────────────────────────────────────────────────────────
+  // ナビ開始・終了
+  // ─────────────────────────────────────────────────────────────────────
+
+  /// 「案内を開始」ボタン押下時の処理
+  void _startNavigation() {
+    if (_currentPosition == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('現在地を取得中です。しばらくお待ちください。')),
+      );
+      return;
+    }
+
+    setState(() => _isNavigating = true);
+
+    // カメラを現在地にズームイン
+    _mapController?.animateCamera(
+      CameraUpdate.newLatLngZoom(_currentPosition!, 17.0),
+    );
+  }
+
+  /// 「案内を終了」ボタン押下時の処理
+  void _stopNavigation() {
+    _clearRoute();
+  }
+
+  // ─────────────────────────────────────────────────────────────────────
+  // GPS追従
+  // ─────────────────────────────────────────────────────────────────────
 
   @override
   void initState() {
@@ -91,14 +287,26 @@ class _MapScreenState extends ConsumerState<MapScreen> {
           );
           _hasMovedToCurrentLocation = true;
         }
+
+        // ナビ中はカメラが現在地を追従
+        if (_isNavigating) {
+          _mapController?.animateCamera(
+            CameraUpdate.newLatLng(_currentPosition!),
+          );
+        }
       }
     });
   }
 
+  // ─────────────────────────────────────────────────────────────────────
+  // マップ操作
+  // ─────────────────────────────────────────────────────────────────────
+
   /// 地図タップ時の処理
   void _onMapTap(LatLng point) {
-    // サジェスト表示中は地図タップを無視（㛂通バグ対策）
-    if (_isSuggestionsVisible) return;
+    // サジェスト表示中・ナビ中は地図タップを無視
+    if (_isSuggestionsVisible || _isNavigating) return;
+
     setState(() {
       _markers = {
         Marker(
@@ -109,10 +317,26 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       };
     });
 
-    // 場所情報ボトムシートを表示
+    // 場所情報ボトムシートを表示（ルートボタン付き）
     showPlaceInfoSheet(
       context: context,
       tappedPoint: point,
+      onRouteRequested: (LatLng destination) {
+        // 現在地が未取得の場合はエラーを表示
+        if (_currentPosition == null) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('現在地が取得できていません。GPS を確認してください。'),
+            ),
+          );
+          return;
+        }
+        // ルート探索を実行（ボトムシートはコールバック呼び出し前に閉じられている）
+        fetchAndDrawRoute(
+          start: _currentPosition!,
+          end: destination,
+        );
+      },
     ).then((_) {
       // ボトムシートが閉じたらマーカーをクリア
       if (mounted) {
@@ -179,57 +403,377 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     super.dispose();
   }
 
+  // ─────────────────────────────────────────────────────────────────────
+  // UI: ルート比較カード
+  // ─────────────────────────────────────────────────────────────────────
+
+  Widget _buildRouteCompareCard() {
+    if (_currentRouteResponse == null || _isNavigating) {
+      return const SizedBox.shrink();
+    }
+
+    final safe = _currentRouteResponse!.safeRoute;
+    final shortest = _currentRouteResponse!.shortestRoute;
+
+    return Positioned(
+      bottom: 24,
+      left: 12,
+      right: 12,
+      child: PointerInterceptor(
+        child: Card(
+          elevation: 8,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(18),
+          ),
+          color: Colors.white.withValues(alpha: 0.97),
+          child: Padding(
+            padding:
+                const EdgeInsets.symmetric(horizontal: 16.0, vertical: 14.0),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // ── ヘッダー ──────────────────────────────────────────
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text(
+                      '🧭 ルート比較',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 14,
+                        color: AppColors.primaryNavy,
+                      ),
+                    ),
+                    GestureDetector(
+                      onTap: _clearRoute,
+                      child: const Icon(Icons.close,
+                          size: 20, color: Colors.grey),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+
+                // ── ルート選択タイル ───────────────────────────────────
+                Row(
+                  children: [
+                    // 安全優先ルート
+                    Expanded(
+                      child: _buildRouteSelectorTile(
+                        label: '安全優先',
+                        icon: Icons.shield_outlined,
+                        color: const Color(0xFF2ECC71),
+                        distance: safe.distanceM,
+                        score: safe.safetyScore,
+                        routeType: _RouteType.safe,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    // 仕切り線（VerticalDivider 不使用でバグ防止）
+                    Container(
+                      width: 1,
+                      height: 70,
+                      color: Colors.grey.shade300,
+                    ),
+                    const SizedBox(width: 8),
+                    // 最短距離ルート
+                    Expanded(
+                      child: _buildRouteSelectorTile(
+                        label: '最短距離',
+                        icon: Icons.route,
+                        color: const Color(0xFF3498DB),
+                        distance: shortest.distanceM,
+                        score: shortest.safetyScore,
+                        routeType: _RouteType.shortest,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+
+                // ── 「案内を開始」ボタン ──────────────────────────────
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.icon(
+                    onPressed: _startNavigation,
+                    style: FilledButton.styleFrom(
+                      backgroundColor: AppColors.primaryNavy,
+                      padding: const EdgeInsets.symmetric(vertical: 13),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    icon: const Icon(Icons.navigation, color: Colors.white),
+                    label: const Text(
+                      '案内を開始',
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 10),
+
+                // ── 帰属表記（ライセンス設計指針 準拠）────────────────
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.info_outline,
+                        size: 11, color: Colors.grey.shade500),
+                    const SizedBox(width: 4),
+                    Text(
+                      '経路データ提供: OpenStreetMap コントリビューター',
+                      style: TextStyle(
+                          fontSize: 10, color: Colors.grey.shade500),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// ルート種別を選択できるタイル（選択中は枠線でハイライト）
+  Widget _buildRouteSelectorTile({
+    required String label,
+    required IconData icon,
+    required Color color,
+    required double distance,
+    required double score,
+    required _RouteType routeType,
+  }) {
+    final bool isSelected = _selectedRouteType == routeType;
+
+    return GestureDetector(
+      onTap: () => setState(() => _selectedRouteType = routeType),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        decoration: BoxDecoration(
+          color: isSelected ? color.withValues(alpha: 0.08) : Colors.transparent,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: isSelected ? color : Colors.transparent,
+            width: 1.5,
+          ),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(icon, size: 14, color: color),
+                const SizedBox(width: 4),
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 12,
+                    color: color,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text(
+              distance >= 1000
+                  ? '${(distance / 1000).toStringAsFixed(1)} km'
+                  : '${distance.toStringAsFixed(0)} m',
+              style: const TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w700,
+                color: Colors.black87,
+              ),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              '安全: ${(score * 100).toStringAsFixed(0)}%',
+              style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────────────────
+  // UI: ナビ中 HUD
+  // ─────────────────────────────────────────────────────────────────────
+
+  Widget _buildNavigationHud() {
+    if (!_isNavigating || _currentRouteResponse == null) {
+      return const SizedBox.shrink();
+    }
+
+    final routeInfo = _selectedRouteType == _RouteType.safe
+        ? _currentRouteResponse!.safeRoute
+        : _currentRouteResponse!.shortestRoute;
+
+    final routeLabel =
+        _selectedRouteType == _RouteType.safe ? '安全優先ルート' : '最短距離ルート';
+    final routeColor = _selectedRouteType == _RouteType.safe
+        ? const Color(0xFF2ECC71)
+        : const Color(0xFF3498DB);
+
+    return Positioned(
+      top: 0,
+      left: 0,
+      right: 0,
+      child: PointerInterceptor(
+        child: Container(
+          decoration: BoxDecoration(
+            color: AppColors.primaryNavy,
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.3),
+                blurRadius: 8,
+                offset: const Offset(0, 3),
+              ),
+            ],
+          ),
+          child: SafeArea(
+            bottom: false,
+            child: Padding(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              child: Row(
+                children: [
+                  // ルート種別インジケーター
+                  Container(
+                    width: 10,
+                    height: 10,
+                    decoration: BoxDecoration(
+                      color: routeColor,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+
+                  // ルート情報テキスト
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          '案内中: $routeLabel',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 13,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          routeInfo.distanceM >= 1000
+                              ? '総距離: ${(routeInfo.distanceM / 1000).toStringAsFixed(1)} km  ・  '
+                                '安全スコア: ${(routeInfo.safetyScore * 100).toStringAsFixed(0)}%'
+                              : '総距離: ${routeInfo.distanceM.toStringAsFixed(0)} m  ・  '
+                                '安全スコア: ${(routeInfo.safetyScore * 100).toStringAsFixed(0)}%',
+                          style: TextStyle(
+                            color: Colors.white.withValues(alpha: 0.8),
+                            fontSize: 11,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  // 案内終了ボタン
+                  TextButton(
+                    onPressed: _stopNavigation,
+                    style: TextButton.styleFrom(
+                      backgroundColor: Colors.red.shade600,
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 14, vertical: 8),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      minimumSize: Size.zero,
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                    child: const Text(
+                      '終了',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 13,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────────────────
+  // build
+  // ─────────────────────────────────────────────────────────────────────
+
   @override
   Widget build(BuildContext context) {
     final imageState = ref.watch(selectedImageProvider);
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Row(
-          children: [
-            Icon(Icons.shield_outlined, color: AppColors.white),
-            SizedBox(width: 8),
-            Text(
-              'SafeWay',
-              style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: 1.2),
-            ),
-          ],
-        ),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.info_outline),
-            onPressed: () {
-              showAboutDialog(
-                context: context,
-                applicationName: 'SafeWay',
-                applicationVersion: '1.0.0 (Phase 3)',
-                applicationIcon: const Icon(
-                  Icons.shield,
-                  color: AppColors.primaryNavy,
-                  size: 40,
-                ),
-                children: const [
-                  Text('GPA 2026 アプリ部門受賞を目指す「安心」ナビゲーション。'),
-                  SizedBox(height: 8),
-                  Text('Phase 3: 場所検索・タップ詳細・API仕様書対応'),
-                  SizedBox(height: 8),
+      // ナビ中はAppBarを非表示
+      appBar: _isNavigating
+          ? null
+          : AppBar(
+              title: const Row(
+                children: [
+                  Icon(Icons.shield_outlined, color: AppColors.white),
+                  SizedBox(width: 8),
                   Text(
-                    '地図データ経路計算: © OpenStreetMap contributors (ODbL)',
-                    style: TextStyle(fontSize: 12),
-                  ),
-                  Text(
-                    'https://www.openstreetmap.org/copyright',
-                    style: TextStyle(fontSize: 12, color: Colors.blue),
+                    'SafeWay',
+                    style: TextStyle(
+                        fontWeight: FontWeight.bold, letterSpacing: 1.2),
                   ),
                 ],
-              );
-            },
-          ),
-        ],
-      ),
+              ),
+              actions: [
+                IconButton(
+                  icon: const Icon(Icons.info_outline),
+                  onPressed: () {
+                    showAboutDialog(
+                      context: context,
+                      applicationName: 'SafeWay',
+                      applicationVersion: '1.0.0 (Phase 3)',
+                      applicationIcon: const Icon(
+                        Icons.shield,
+                        color: AppColors.primaryNavy,
+                        size: 40,
+                      ),
+                      children: const [
+                        Text('GPA 2026 アプリ部門受賞を目指す「安心」ナビゲーション。'),
+                        SizedBox(height: 8),
+                        Text('Phase 3: 場所検索・タップ詳細・API仕様書対応'),
+                        SizedBox(height: 8),
+                        Text(
+                          '地図データ経路計算: © OpenStreetMap contributors (ODbL)',
+                          style: TextStyle(fontSize: 12),
+                        ),
+                        Text(
+                          'https://www.openstreetmap.org/copyright',
+                          style: TextStyle(fontSize: 12, color: Colors.blue),
+                        ),
+                      ],
+                    );
+                  },
+                ),
+              ],
+            ),
       body: Stack(
         children: [
-          // 1. Google Maps 本体
+          // ── 1. Google Maps 本体 ──────────────────────────────────────
           // AbsorbPointer でサジェスト表示中はネイティブタッチを遮断（PlatformView 貫通バグ対策）
           AbsorbPointer(
             absorbing: _isSuggestionsVisible,
@@ -251,6 +795,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
               ),
               onTap: _onMapTap,
               markers: _markers,
+              polylines: _polylines,
               myLocationEnabled: true,
               myLocationButtonEnabled: false,
               zoomControlsEnabled: false,
@@ -259,29 +804,89 @@ class _MapScreenState extends ConsumerState<MapScreen> {
             ),
           ),
 
-          // 2. 上部：検索バー
-          MapSearchBar(
-            mapController: _mapController,
-            currentPosition: _currentPosition,
-            onSuggestionsVisibilityChanged: (isVisible) {
-              setState(() => _isSuggestionsVisible = isVisible);
-            },
-          ),
+          // ── 2. ナビ中HUD（最前面：AppBar代替）───────────────────────
+          _buildNavigationHud(),
 
-          // 3. 画像プレビューカード（選択された時だけ）
-          if (imageState.image != null)
+          // ── 3. 上部：検索バー（ナビ中は非表示）──────────────────────
+          if (!_isNavigating)
+            MapSearchBar(
+              mapController: _mapController,
+              currentPosition: _currentPosition,
+              onSuggestionsVisibilityChanged: (isVisible) {
+                setState(() => _isSuggestionsVisible = isVisible);
+              },
+            ),
+
+          // ── 4. 画像プレビューカード（選択された時だけ・ナビ中は非表示）
+          if (imageState.image != null && !_isNavigating)
             ImagePreviewCard(imageState: imageState),
 
-          // 4. 右下のアクションボタン
-          ActionButtons(
-            mapController: _mapController,
-            currentPosition: _currentPosition,
-            onCameraPressed: _showImageSourceBottomSheet,
-          ),
+          // ── 5. 右下のアクションボタン（ナビ中は非表示）──────────────
+          if (!_isNavigating)
+            ActionButtons(
+              mapController: _mapController,
+              currentPosition: _currentPosition,
+              onCameraPressed: _showImageSourceBottomSheet,
+            ),
 
-          if (_isLoadingGps)
+          // ── 6. ルート比較カード（ルート取得後・ナビ前のみ表示）───────
+          _buildRouteCompareCard(),
+
+          // ── 7. ルート探索中のローディングインジケーター ──────────────
+          if (_isLoadingRoute)
             Positioned(
               top: 80,
+              left: 0,
+              right: 0,
+              child: SafeArea(
+                child: Center(
+                  child: PointerInterceptor(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          vertical: 8, horizontal: 20),
+                      decoration: BoxDecoration(
+                        color: AppColors.primaryNavy.withValues(alpha: 0.9),
+                        borderRadius: BorderRadius.circular(20),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.2),
+                            blurRadius: 6,
+                            offset: const Offset(0, 3),
+                          ),
+                        ],
+                      ),
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          SizedBox(
+                            width: 14,
+                            height: 14,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          ),
+                          SizedBox(width: 10),
+                          Text(
+                            'ルートを探索中...',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w500,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+
+          // ── 8. GPS取得中インジケーター（ナビ中は非表示）─────────────
+          if (_isLoadingGps && !_isNavigating)
+            Positioned(
+              top: _isLoadingRoute ? 120 : 80,
               left: 16,
               right: 16,
               child: SafeArea(

@@ -34,24 +34,35 @@ class PlaceDetail {
 /// 1. Google Places API Nearby Search で周辺施設を検索
 /// 2. 施設が見つかれば：名称・評価・営業状況・写真を表示
 /// 3. 施設がなければ：Nominatim 逆ジオコーディングで住所のみ表示
+///
+/// [onRouteRequested] が指定された場合、ルートボタンを表示する。
+/// タップ時に [tappedPoint] を引数としてコールバックが呼ばれる。
 Future<void> showPlaceInfoSheet({
   required BuildContext context,
   required LatLng tappedPoint,
+  void Function(LatLng destination)? onRouteRequested,
 }) async {
   showModalBottomSheet(
     context: context,
     isScrollControlled: true,
     backgroundColor: Colors.transparent,
     builder: (_) => PointerInterceptor(
-      child: _PlaceInfoSheet(tappedPoint: tappedPoint),
+      child: _PlaceInfoSheet(
+        tappedPoint: tappedPoint,
+        onRouteRequested: onRouteRequested,
+      ),
     ),
   );
 }
 
 class _PlaceInfoSheet extends StatefulWidget {
   final LatLng tappedPoint;
+  final void Function(LatLng destination)? onRouteRequested;
 
-  const _PlaceInfoSheet({required this.tappedPoint});
+  const _PlaceInfoSheet({
+    required this.tappedPoint,
+    this.onRouteRequested,
+  });
 
   @override
   State<_PlaceInfoSheet> createState() => _PlaceInfoSheetState();
@@ -309,14 +320,58 @@ class _PlaceInfoSheetState extends State<_PlaceInfoSheet> {
                 const SizedBox(height: 8),
               ],
 
-              // 場所名
-              Text(
-                detail.name,
-                style: const TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.black87,
-                ),
+              // ── 場所名 + ルートボタン ────────────────────────────────
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Expanded(
+                    child: Text(
+                      detail.name,
+                      style: const TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.black87,
+                      ),
+                    ),
+                  ),
+                  // ルートボタン（コールバックが設定されている場合のみ表示）
+                  if (widget.onRouteRequested != null) ...[
+                    const SizedBox(width: 8),
+                    FilledButton.icon(
+                      onPressed: () {
+                        // ① ボトムシートを閉じる
+                        Navigator.pop(context);
+                        // ② ルート探索コールバックを呼ぶ
+                        widget.onRouteRequested!(widget.tappedPoint);
+                      },
+                      style: FilledButton.styleFrom(
+                        backgroundColor: AppColors.primaryNavy,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 8,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        minimumSize: Size.zero,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
+                      icon: const Icon(
+                        Icons.directions,
+                        size: 16,
+                        color: Colors.white,
+                      ),
+                      label: const Text(
+                        'ルート',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
               ),
 
               const SizedBox(height: 8),
