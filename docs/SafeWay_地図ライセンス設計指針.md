@@ -1,4 +1,4 @@
-# SafeWay 地図関連 規約・ライセンス設計指針
+# SafeWay 地図関連 規約・ライセンス設計指針v2
 
 **対象読者:** SafeWayの設計・実装を担当するエージェント／開発者
 **目的:** Google Maps Platform利用規約 と OpenStreetMap(OSM)のODbLライセンスに関する制約を理解した上で、「ベースマップ・場所検索＝Google Maps Platform／経路計算＝OSM(OSMnx)」構成を安全に実装するための設計ルールを共有する。
@@ -132,6 +132,31 @@
 
 ---
 
+### 2.7 Roads API（Snap to Roads）によるOSM経路のスナッピング（v2で新規追加）
+
+**背景:** ベースマップ＝Google Map、経路計算＝OSMの構成では、道路形状の微妙な差異により、OSMで計算した経路線がGoogleの道路と若干ずれて表示される問題がある。OSM計算後の座標列をRoads API（Snap to Roads）に通してからGoogle Map上に描画することで、このズレを解消できるかを検証。
+
+**ルール:** Roads APIは「Google以外が生成したGPS座標列をGoogleの道路網に合わせて整形する」ために設計されたサービスであり、この用途は想定内の使い方である。
+
+**厳密な適用条件:**
+- スナップ後の座標（Google Maps Content）は**Google Map上にのみ**描画する（非Google地図との併用は不可）
+- 1リクエストあたり最大100点まで。長い経路は前リクエスト末尾点を次リクエスト先頭に重複させて分割する
+- スナップ後の緯度経度データは30日を超えて保存しない（place_idは無期限保存可）
+- 経路選択ロジック自体はOSMデータに基づくため、OSMへの帰属表示は引き続き必要（Roads APIを使っても代替にはならない）
+
+**現状評価:** OSM計算経路をRoads APIでスナップしてGoogle Map上に描画する設計は、問題なし。配車サービス等が自社GPSトレースをGoogleの道路網に合わせる際に使うのと同じ用途。
+
+**設計ルール⑨（新規）:**
+> OSMで計算した安全経路の座標列をRoads API（Snap to Roads）に通し、返ってきたスナップ済み座標をGoogle Map上に描画する。長距離経路は100点制限に注意して分割リクエストする。コストが線形に増える（有料SKU）ため、リクエスト数の見積もりをしておく。
+
+**ソース:**
+- Roads API概要・Snap to Roads: https://developers.google.com/maps/documentation/roads/overview
+- Snap to Roadsの詳細と挙動: https://developers.google.com/maps/documentation/roads/snap
+- 長距離パスの分割実装例: https://developers.google.com/maps/documentation/roads/advanced
+- 料金・利用制限: https://developers.google.com/maps/documentation/roads/usage-and-billing
+
+---
+
 ## 3. OpenStreetMap（ODbL）ライセンス上のルール
 
 ### 3.1 "Produced Work" と "Derivative Database" の区別
@@ -143,12 +168,12 @@
 - 出力物から元のOSMデータベース全体・実質部分を**復元できない**
 - OSMの道路網データ自体を改変・保存・再配布していない
 
-**この条件から外れると違反になりうる例:**
+**この条件から外れると違反になりうる例（v2で明確化）:**
 - OSMの道路網データを丸ごと（または実質的な部分を）SafeWayのサーバーに永続的に複製・保存し、それを別サービスに提供する
 - OSMデータと独自データを恒久的に結合し、新しいデータセットとして第三者に配布する
 
 **設計ルール③:**
-> アプリ内（設定画面／アバウト画面）に `© OpenStreetMap contributors` の表記と、ODbLライセンスへのリンク（ https://www.openstreetmap.org/copyright ）を必ず入れる。将来「オフライン用に道路データをまるごと同梱する」仕様を追加する場合は、Derivative Database扱いとなり全面公開義務が生じるため要再検討。
+> アプリ内（設定画面／アバウト画面）に `© OpenStreetMap contributors` の表記と、ODbLライセンスへのリンク（https://www.openstreetmap.org/copyright）を必ず入れる。将来「オフライン用に道路データをまるごと同梱する」仕様を追加する場合は、Derivative Database扱いとなり全面公開義務が生じるため要再検討。
 
 **ソース:**
 - ODbL本文: https://opendatacommons.org/licenses/odbl/1-0/
@@ -185,6 +210,7 @@
 - [ ] 最短経路（Directions/Routes API）は非Google地図と併用せず、Google Map上にのみ描画している（2.5）
 - [ ] Directions API + Geolocation API + Maps SDKでGoogle純正ナビとほぼ同じフル機能を再現していない（2.5）
 - [ ] コンテスト発表等でGoogleルーティングとの定量比較を公表する場合、再現可能な情報を併記している（2.6）
+- [ ] OSM経路をRoads APIでスナップする場合、スナップ後座標はGoogle Map上にのみ描画し、100点/リクエスト制限に対応している（2.7）
 
 ---
 
