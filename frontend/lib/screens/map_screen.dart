@@ -7,6 +7,7 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:http/http.dart' as http;
 import 'package:pointer_interceptor/pointer_interceptor.dart';
 import '../providers/image_provider.dart';
+import '../providers/hazard_provider.dart';
 import '../core/theme.dart';
 import '../core/api_config.dart';
 import '../widgets/image_preview_card.dart';
@@ -43,6 +44,9 @@ class _MapScreenState extends ConsumerState<MapScreen> {
 
   /// 地図上に立っているマーカー（目的地ピン等）
   Set<Marker> _markers = {};
+
+  /// ハザード情報表示用のマーカー
+  Set<Marker> _hazardMarkers = {};
 
   /// ルート描画用のポリラインセット
   Set<Polyline> _polylines = {};
@@ -181,13 +185,24 @@ class _MapScreenState extends ConsumerState<MapScreen> {
 
     try {
       final apiService = ref.read(apiServiceProvider);
+      final hazardRadius = ref.read(hazardProvider).routingRadius;
+      
       final response = await apiService.fetchRoute(
         startLat: start.latitude,
         startLng: start.longitude,
         endLat: end.latitude,
         endLng: end.longitude,
+        hazardRadiusM: hazardRadius,
       );
+      
       _updateRoutePolylines(response);
+      
+      // ハザードマーカーの生成
+      final newHazardMarkers = response.nearbyHazards.map(_createHazardMarker).toSet();
+      setState(() {
+        _hazardMarkers = newHazardMarkers;
+      });
+      
       await _fitRouteBounds(response);
     } catch (e) {
       if (mounted) {
@@ -210,6 +225,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       _currentRouteResponse = null;
       _isNavigating = false;
       _markers = {};
+      _hazardMarkers = {};
     });
   }
 
@@ -287,6 +303,144 @@ class _MapScreenState extends ConsumerState<MapScreen> {
         });
       }
     });
+  }
+
+  // ─────────────────────────────────────────────────────────────────────
+  // ハザード情報関連
+  // ─────────────────────────────────────────────────────────────────────
+
+  /// 周辺のハザード情報を取得してマーカーを更新
+  Future<void> _fetchHazards() async {
+    final hazardState = ref.read(hazardProvider);
+    if (!hazardState.isVisible || _mapController == null) {
+      if (_hazardMarkers.isNotEmpty) {
+        setState(() => _hazardMarkers = {});
+      }
+      return;
+    }
+
+    try {
+      final bounds = await _mapController!.getVisibleRegion();
+      final apiService = ref.read(apiServiceProvider);
+      final hazards = await apiService.getHazards(
+        minLat: bounds.southwest.latitude,
+        minLng: bounds.southwest.longitude,
+        maxLat: bounds.northeast.latitude,
+        maxLng: bounds.northeast.longitude,
+      );
+
+      final newHazardMarkers = hazards.map(_createHazardMarker).toSet();
+      if (mounted) {
+        setState(() {
+          _hazardMarkers = newHazardMarkers;
+        });
+      }
+    } catch (e) {
+      debugPrint('ハザード取得エラー: $e');
+    }
+  }
+
+  /// ハザード情報からマーカーを生成
+  Marker _createHazardMarker(HazardPoint hazard) {
+    final isBear = hazard.eventType == 'wildlife';
+    return Marker(
+      markerId: MarkerId('hazard_${hazard.id}'),
+      position: LatLng(hazard.lat, hazard.lng),
+      // TODO: 将来的にアセット画像に差し替え (isBear ? BitmapDescriptor.fromAssetImage(...) : ...)
+      icon: BitmapDescriptor.defaultMarkerWithHue(
+        isBear ? BitmapDescriptor.hueOrange : BitmapDescriptor.hueYellow,
+      ),
+      onTap: () => _showHazardDetailsSheet(hazard),
+    );
+  }
+
+  /// ハザード詳細のボトムシートを表示
+  void _showHazardDetailsSheet(HazardPoint hazard) {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (context) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(20.0),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(
+                      hazard.eventType == 'wildlife' ? Icons.pets : Icons.warning_amber,
+                      color: hazard.eventType == 'wildlife' ? Colors.orange : Colors.yellow.shade700,
+                      size: 28,
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      hazard.label ?? '危険情報',
+                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Text('種類: ${hazard.sourceType}'),
+                Text('更新日時: ${hazard.updatedAt}'),
+                if (hazard.confidence != null)
+                  Text('信頼度: ${(hazard.confidence! * 100).toStringAsFixed(1)}%'),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  /// ハザード設定ダイアログを表示
+  void _showHazardSettingsDialog() {
+    showDialog(
+      context: context,
+      builder: (context) {
+        return Consumer(
+          builder: (context, ref, child) {
+            final hazardState = ref.watch(hazardProvider);
+            return AlertDialog(
+              title: const Text('ハザード表示設定'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('通常時の検索半径: ${(hazardState.normalRadius / 1000).toStringAsFixed(1)} km'),
+                  Slider(
+                    value: hazardState.normalRadius,
+                    min: 1000.0,
+                    max: 50000.0,
+                    divisions: 49,
+                    onChanged: (val) => ref.read(hazardProvider.notifier).setNormalRadius(val),
+                    onChangeEnd: (_) => _fetchHazards(),
+                  ),
+                  const SizedBox(height: 16),
+                  Text('ルート時の検索半径: ${(hazardState.routingRadius / 1000).toStringAsFixed(1)} km'),
+                  Slider(
+                    value: hazardState.routingRadius,
+                    min: 100.0,
+                    max: 5000.0,
+                    divisions: 49,
+                    onChanged: (val) => ref.read(hazardProvider.notifier).setRoutingRadius(val),
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('閉じる'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
   }
 
   // ─────────────────────────────────────────────────────────────────────
@@ -867,7 +1021,8 @@ class _MapScreenState extends ConsumerState<MapScreen> {
               // onPoiTap: google_maps_flutter 2.17.x 時点で公開なし。
               // POI情報は長押し（onLongPress）経由で全て対応する。
               onLongPress: _onLongPress,
-              markers: _markers,
+              onCameraIdle: _fetchHazards,
+              markers: {..._markers, ..._hazardMarkers},
               polylines: _polylines,
               myLocationEnabled: true,
               myLocationButtonEnabled: false,
@@ -879,6 +1034,38 @@ class _MapScreenState extends ConsumerState<MapScreen> {
 
           // ── 2. ナビ中 HUD（最前面: AppBar代替）─────────────────────
           _buildNavigationHud(),
+
+          // ── 2.5. 左側：ハザード情報トグルボタン（ナビ中は非表示）───────────
+          if (!_isNavigating)
+            Positioned(
+              left: 16,
+              top: 140, // 検索バーの下あたり
+              child: SafeArea(
+                child: PointerInterceptor(
+                  child: Consumer(
+                    builder: (context, ref, child) {
+                      final hazardState = ref.watch(hazardProvider);
+                      return GestureDetector(
+                        onLongPress: _showHazardSettingsDialog,
+                        child: FloatingActionButton(
+                          heroTag: 'hazardToggleBtn',
+                          onPressed: () {
+                            ref.read(hazardProvider.notifier).toggleVisibility();
+                            // 表示状態が変わったら即座に再フェッチ
+                            _fetchHazards();
+                          },
+                          backgroundColor: hazardState.isVisible ? Colors.yellow.shade700 : Colors.grey.shade400,
+                          foregroundColor: Colors.white,
+                          mini: true, // 少し小さめに
+                          tooltip: 'ハザード情報の表示 (長押しで設定)',
+                          child: const Icon(Icons.warning_amber),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ),
+            ),
 
           // ── 3. 上部：検索バー（ナビ中は非表示）─────────────────────
           if (!_isNavigating)

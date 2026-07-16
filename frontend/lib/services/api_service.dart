@@ -101,6 +101,7 @@ class ApiService {
     required double startLng,
     required double endLat,
     required double endLng,
+    double hazardRadiusM = 1000.0,
   }) async {
     final uri = Uri.parse('$baseUrl/route');
     final body = jsonEncode({
@@ -108,6 +109,7 @@ class ApiService {
       'start_lng': startLng,
       'end_lat': endLat,
       'end_lng': endLng,
+      'hazard_radius_m': hazardRadiusM,
     });
 
     final response = await http.post(
@@ -130,6 +132,31 @@ class ApiService {
       throw Exception('サービス一時停止 (503): データベースに接続できません。');
     } else {
       throw Exception('サーバーエラー: HTTP ${response.statusCode}');
+    }
+  }
+
+  /// 周辺のハザード情報取得: GET /api/hazards
+  Future<List<HazardPoint>> getHazards({
+    required double minLat,
+    required double minLng,
+    required double maxLat,
+    required double maxLng,
+  }) async {
+    final uri = Uri.parse('$baseUrl/hazards').replace(queryParameters: {
+      'min_lat': minLat.toString(),
+      'min_lng': minLng.toString(),
+      'max_lat': maxLat.toString(),
+      'max_lng': maxLng.toString(),
+    });
+
+    final response = await http.get(uri);
+
+    if (response.statusCode == 200) {
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      final points = data['points'] as List<dynamic>? ?? [];
+      return points.map((e) => HazardPoint.fromJson(e)).toList();
+    } else {
+      throw Exception('ハザード情報の取得に失敗しました: HTTP ${response.statusCode}');
     }
   }
 

@@ -108,6 +108,7 @@ class HazardPoint {
   final String? label;
   final double? confidence;
   final String updatedAt;
+  final String? eventType;
 
   HazardPoint({
     required this.id,
@@ -118,6 +119,7 @@ class HazardPoint {
     this.label,
     this.confidence,
     required this.updatedAt,
+    this.eventType,
   });
 
   factory HazardPoint.fromJson(Map<String, dynamic> json) {
@@ -130,6 +132,7 @@ class HazardPoint {
       label: json['label'] as String?,
       confidence: (json['confidence'] as num?)?.toDouble(),
       updatedAt: json['updated_at'] as String? ?? '',
+      eventType: json['event_type'] as String?,
     );
   }
 }

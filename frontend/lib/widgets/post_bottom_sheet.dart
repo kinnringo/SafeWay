@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:image_picker/image_picker.dart';
+import 'dart:io' show File;
 import '../core/theme.dart';
 
 class PostBottomSheet extends StatefulWidget {
@@ -10,10 +13,72 @@ class PostBottomSheet extends StatefulWidget {
 
 class _PostBottomSheetState extends State<PostBottomSheet> {
   final TextEditingController _textController = TextEditingController();
+  final ImagePicker _picker = ImagePicker();
+  XFile? _selectedImage;
 
   void _onAddPhotoTap() {
-    // TODO: 画像選択（カメラ/ギャラリー）の実装
-    print('[PostBottomSheet] 写真を追加ボタンがタップされました');
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (BuildContext context) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 16),
+                child: Text(
+                  '写真を追加',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: AppColors.primaryNavy,
+                  ),
+                ),
+              ),
+              ListTile(
+                leading: const Icon(Icons.camera_alt, color: AppColors.primaryNavy),
+                title: const Text('カメラで撮影'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _pickImage(ImageSource.camera);
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.photo_library, color: AppColors.primaryNavy),
+                title: const Text('ギャラリーから選択'),
+                onTap: () {
+                  Navigator.pop(context);
+                  _pickImage(ImageSource.gallery);
+                },
+              ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _pickImage(ImageSource source) async {
+    try {
+      final XFile? image = await _picker.pickImage(source: source);
+      if (image != null) {
+        setState(() {
+          _selectedImage = image;
+        });
+      }
+    } catch (e) {
+      debugPrint('画像選択エラー: $e');
+    }
+  }
+
+  void _clearImage() {
+    setState(() {
+      _selectedImage = null;
+    });
   }
 
   void _onPostTap() {
@@ -69,29 +134,70 @@ class _PostBottomSheetState extends State<PostBottomSheet> {
             ),
             const SizedBox(height: 16),
 
-            // 写真選択エリア（ダミーUI）
-            GestureDetector(
-              onTap: _onAddPhotoTap,
-              child: Container(
-                height: 120,
-                decoration: BoxDecoration(
-                  color: Colors.grey.shade50,
-                  border: Border.all(color: Colors.grey.shade300, width: 2), // 枠線
-                  borderRadius: BorderRadius.circular(12),
+            // 写真選択エリア
+            if (_selectedImage == null)
+              GestureDetector(
+                onTap: _onAddPhotoTap,
+                child: Container(
+                  height: 120,
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade50,
+                    border: Border.all(color: Colors.grey.shade300, width: 2), // 枠線
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.add_a_photo, color: Colors.grey, size: 36),
+                      SizedBox(height: 8),
+                      Text(
+                        'タップして写真を追加',
+                        style: TextStyle(color: Colors.grey, fontSize: 14),
+                      ),
+                    ],
+                  ),
                 ),
-                child: const Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(Icons.add_a_photo, color: Colors.grey, size: 36),
-                    SizedBox(height: 8),
-                    Text(
-                      'タップして写真を追加',
-                      style: TextStyle(color: Colors.grey, fontSize: 14),
+              )
+            else
+              Stack(
+                children: [
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: SizedBox(
+                      height: 200,
+                      width: double.infinity,
+                      child: kIsWeb
+                          ? Image.network(
+                              _selectedImage!.path,
+                              fit: BoxFit.cover,
+                            )
+                          : Image.file(
+                              File(_selectedImage!.path),
+                              fit: BoxFit.cover,
+                            ),
                     ),
-                  ],
-                ),
+                  ),
+                  Positioned(
+                    top: 8,
+                    right: 8,
+                    child: GestureDetector(
+                      onTap: _clearImage,
+                      child: Container(
+                        padding: const EdgeInsets.all(4),
+                        decoration: const BoxDecoration(
+                          color: Colors.black54,
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(
+                          Icons.close,
+                          color: Colors.white,
+                          size: 20,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
               ),
-            ),
             const SizedBox(height: 20),
 
             // テキスト入力欄
