@@ -20,7 +20,7 @@ services:
     environment:
       PGADMIN_DEFAULT_EMAIL: admin@safeway.com
       PGADMIN_DEFAULT_PASSWORD: admin
-      PGADMIN_CONFIG_SERVER_MODE: "False"
+      PGADMIN_CONFIG_SERVER_MODE: "True"
     volumes:
       - pgadmin_data:/var/lib/pgadmin
     depends_on:
