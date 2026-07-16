@@ -1,11 +1,14 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:http/http.dart' as http;
 import 'package:pointer_interceptor/pointer_interceptor.dart';
 import '../providers/image_provider.dart';
 import '../core/theme.dart';
+import '../core/api_config.dart';
 import '../widgets/image_preview_card.dart';
 import '../widgets/action_buttons.dart';
 import '../widgets/search_bar_widget.dart';
@@ -21,6 +24,12 @@ class MapScreen extends ConsumerStatefulWidget {
 
   @override
   ConsumerState<MapScreen> createState() => _MapScreenState();
+}
+
+class _DetectedPoi {
+  final LatLng latLng;
+  final String placeId;
+  _DetectedPoi({required this.latLng, required this.placeId});
 }
 
 class _MapScreenState extends ConsumerState<MapScreen> {
@@ -283,23 +292,68 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   // 地図インタラクションハンドラ（本家 Google Map 準拠）
   // ─────────────────────────────────────────────────────────────────────
 
-  /// 1. 通常タップ：「何もない場所」のタップ
-  ///
-  /// ボトムシートが開いている場合のみ安全に閉じる。
-  /// `_isPlaceSheetOpen` フラグで判定することで、ボトムシートが存在しない状態で
-  /// `Navigator.pop(context)` が呼ばれて地図画面自体がポップするバグを防ぐ。
-  void _onMapTap(LatLng point) {
+  /// 1. 通常タップ（自動 POI 判定）
+  Future<void> _onMapTap(LatLng point) async {
     if (_isSuggestionsVisible || _isNavigating) return;
 
-    if (_isPlaceSheetOpen) {
-      // ボトムシートが開いている時のみ、安全に閉じる
-      Navigator.pop(context);
-      // _isPlaceSheetOpen は .then() ハンドラ内で false に戻る
-    }
+    // タップ地点周辺を Nearby Search で検索し、POI かどうかを判定
+    final poi = await _findNearbyPoi(point);
 
-    // マーカーをクリア
-    if (_markers.isNotEmpty) {
-      setState(() => _markers = {});
+    if (poi != null) {
+      // ① 付近に POI（店舗・スポット）が見つかった場合
+      // 見つかった店舗の正確な座標にピンを立て、ボトムシートを表示
+      _showSpotDetails(point: poi.latLng, placeId: poi.placeId);
+    } else {
+      // ② 付近に POI が見つからない場合（ただの道路や地面をタップ）
+      // ユーザーが「選択を解除した」とみなし、シートを閉じてピンをクリア
+      if (!mounted) return;
+      
+      if (_isPlaceSheetOpen) {
+        if (Navigator.of(context).canPop()) {
+          Navigator.pop(context); // 安全にボトムシートを閉じる
+        }
+      }
+      if (_markers.isNotEmpty) {
+        setState(() => _markers = {});
+      }
+    }
+  }
+
+  /// タップ座標周辺の POI を検索するヘルパー
+  Future<_DetectedPoi?> _findNearbyPoi(LatLng point) async {
+    const key = ApiConfig.googleMapsApiKey;
+    if (key == 'YOUR_GOOGLE_MAPS_API_KEY_HERE' || key.isEmpty) return null;
+
+    try {
+      final uri = Uri.https(
+        'maps.googleapis.com',
+        '/maps/api/place/nearbysearch/json',
+        {
+          'location': '${point.latitude},${point.longitude}',
+          'radius': '15', // タップ地点から15m以内の施設を検索
+          'language': 'ja',
+          'key': key,
+        },
+      );
+      final response = await http.get(uri).timeout(const Duration(seconds: 4));
+      if (response.statusCode != 200) return null;
+
+      final data = jsonDecode(response.body);
+      final results = data['results'] as List<dynamic>?;
+      if (results == null || results.isEmpty) return null;
+
+      // 一番近い施設をタップされた POI とみなす
+      final place = results.first as Map<String, dynamic>;
+      final lat = place['geometry']['location']['lat'] as num;
+      final lng = place['geometry']['location']['lng'] as num;
+      final placeId = place['place_id'] as String;
+
+      return _DetectedPoi(
+        latLng: LatLng(lat.toDouble(), lng.toDouble()), // 店舗の正確な座標
+        placeId: placeId,
+      );
+    } catch (_) {
+      return null;
     }
   }
 
@@ -873,6 +927,11 @@ class _MapScreenState extends ConsumerState<MapScreen> {
               currentPosition: _currentPosition,
               onSuggestionsVisibilityChanged: (isVisible) {
                 setState(() => _isSuggestionsVisible = isVisible);
+              },
+              onPlaceSelected: (place) {
+                final point = LatLng(place.lat, place.lng);
+                // _showSpotDetails を呼ぶことで、自動的に赤ピンが立ち、ボトムシートが表示される
+                _showSpotDetails(point: point); 
               },
             ),
 
