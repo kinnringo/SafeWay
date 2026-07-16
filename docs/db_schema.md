@@ -1,4 +1,4 @@
-﻿# SafeWay データベーススキーマ定義
+# SafeWay データベーススキーマ定義
 
 本ドキュメントでは、SafeWay バックエンドシステム（PostgreSQL / PostGIS）の主要なテーブル構成と、各カラムの役割について記載します。
 
@@ -83,6 +83,8 @@
 | `detection_id` | Integer | FK(detections.id), Nullable | 紐づく物体検出ID |
 | `crime_report_id` | Integer | FK(crime_reports.id), Nullable | 紐づく犯罪報告ID |
 | `score_modifier` | Float | NotNull | 安全スコアへの影響値（正=安全、負=危険） |
+| `influence_radius_m` | Float | NotNull, Default:20.0 | スコアに影響を及ぼす最大半径（メートル）。広域ハザードの距離減衰計算に使用 |
+| `is_road_attribute` | Boolean | NotNull, Default:False | Trueの場合、周辺の全エッジではなく「空間的に最も近い1本のエッジ」のみにスコアを適用する（街灯など道路属性用） |
 | `geom` | Geometry(POINT) | NotNull | ポイント座標 (SRID: 4326) |
 | `is_visible` | Boolean | NotNull, Default:True | 評価・表示に有効かどうか |
 | `updated_at` | DateTime | NotNull | 最終更新日時 |

@@ -75,6 +75,8 @@ class SafetyPoint(Base):
     crime_report_id = Column(Integer, ForeignKey("crime_reports.id"), nullable=True)
     
     score_modifier = Column(Float, nullable=False)
+    influence_radius_m = Column(Float, default=20.0, nullable=False)
+    is_road_attribute = Column(Boolean, default=False, nullable=False)
     geom = Column(Geometry(geometry_type='POINT', srid=4326), nullable=False)
     is_visible = Column(Boolean, default=True, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)

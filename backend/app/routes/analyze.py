@@ -32,6 +32,7 @@ from app.core.database import get_db
 from app.core.score_config import (
     DEFAULT_SCORE_MODIFIER,
     SCORE_MODIFIERS,
+    INFLUENCE_RADIUS_M,
 )
 from app.models.db_models import Detection, SafetyPoint
 from app.models.schemas import AnalyzeResponse, DetectionResult
@@ -244,6 +245,8 @@ async def analyze_image(
                 source_type="detections",
                 detection_id=db_detection.id,
                 score_modifier=score_modifier,
+                influence_radius_m=INFLUENCE_RADIUS_M,
+                is_road_attribute=True,
                 geom=obj_geom,
                 is_visible=True,
                 updated_at=datetime.utcnow()

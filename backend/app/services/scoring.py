@@ -22,10 +22,8 @@ logger = logging.getLogger(__name__)
 # safety_score と routing_cost を再計算して更新する部分更新クエリ
 _UPDATE_EDGE_SCORES_SQL = text("""
     WITH affected_edges AS (
-        -- Step 1: 新しいポイントから INFLUENCE_RADIUS_M 以内にある edges を特定する
-        --         ST_DWithin は空間インデックスを使用するため高速に動作する
-        --         SRID 3857 (Web Mercator) に変換することでメートル単位の距離指定が可能になる
-        SELECT e.id
+        -- Step 1: 新しいポイントから更新対象範囲（:radius_m）以内にある edges を特定する
+        SELECT e.id, e.geom, e.base_safety_score, e.length
         FROM road_edges e
         WHERE ST_DWithin(
             ST_Transform(e.geom, 3857),
@@ -33,37 +31,61 @@ _UPDATE_EDGE_SCORES_SQL = text("""
             :radius_m
         )
     ),
+    nearby_points AS (
+        -- Step 2: 周辺の safety_points を抽出する
+        --         影響半径の最大値（クマの1000m等）を考慮し、余裕を持った範囲で検索する
+        SELECT sp.id, sp.geom, sp.score_modifier, sp.influence_radius_m, sp.is_road_attribute
+        FROM safety_points sp
+        WHERE sp.is_visible = TRUE
+          AND ST_DWithin(
+              ST_Transform(sp.geom, 3857),
+              ST_Transform(ST_SetSRID(ST_MakePoint(:lng, :lat), 4326), 3857),
+              :radius_m + 1500.0
+          )
+    ),
+    point_closest_edges AS (
+        -- Step 3: 道路属性 (is_road_attribute=TRUE) について、最も近い路地（単一エッジ）を求める (KNN)
+        SELECT np.id AS point_id,
+               (
+                   SELECT e.id
+                   FROM road_edges e
+                   ORDER BY e.geom <-> np.geom
+                   LIMIT 1
+               ) AS closest_edge_id
+        FROM nearby_points np
+        WHERE np.is_road_attribute = TRUE
+    ),
     edge_stats AS (
-        -- Step 2: 影響範囲内の各 edge につき、周囲 INFLUENCE_RADIUS_M 以内にある
-        --         有効な safety_points の score_modifier を合算する
-        SELECT
-            e.id AS edge_id,
-            COALESCE(SUM(sp.score_modifier), 0.0) AS score_sum
-        FROM road_edges e
-        JOIN affected_edges ae ON e.id = ae.id
-        LEFT JOIN safety_points sp ON (
-            sp.is_visible = TRUE
-            AND ST_DWithin(
-                ST_Transform(e.geom, 3857),
-                ST_Transform(sp.geom, 3857),
-                :radius_m
-            )
-        )
-        GROUP BY e.id
+        -- Step 4: 各エッジに対するスコア影響の合算
+        SELECT ae.id AS edge_id, COALESCE(SUM(cs.score), 0.0) AS score_sum
+        FROM affected_edges ae
+        LEFT JOIN (
+            -- 4A: 道路属性からのスコア（最も近い単一エッジのみに適用）
+            SELECT pce.closest_edge_id AS edge_id, np.score_modifier AS score
+            FROM nearby_points np
+            JOIN point_closest_edges pce ON np.id = pce.point_id
+            
+            UNION ALL
+            
+            -- 4B: 広域ハザードからのスコア（距離減衰付き）
+            SELECT e.id AS edge_id,
+                   np.score_modifier * GREATEST(0.0, 1.0 - (ST_Distance(ST_Transform(e.geom, 3857), ST_Transform(np.geom, 3857)) / np.influence_radius_m)) AS score
+            FROM nearby_points np
+            JOIN road_edges e ON ST_DWithin(ST_Transform(e.geom, 3857), ST_Transform(np.geom, 3857), np.influence_radius_m)
+            WHERE np.is_road_attribute = FALSE
+        ) AS cs ON cs.edge_id = ae.id
+        GROUP BY ae.id
     )
-    -- Step 3: safety_score と routing_cost を更新する
-    --   safety_score = CLAMP(base_safety_score + dynamic_score, 0.01, 1.0)
-    --   routing_cost = length × (1.0 / safety_score)
-    --     安全な道（score=0.9）→ cost が低くなる → 経路探索で選ばれやすい
-    --     危険な道（score=0.1）→ cost が高くなる → 経路探索で避けられる
+    -- Step 5: safety_score と routing_cost を更新する
     UPDATE road_edges
     SET
         dynamic_safety_score = edge_stats.score_sum,
-        safety_score = GREATEST(0.01, LEAST(1.0, base_safety_score + edge_stats.score_sum)),
-        routing_cost = length * (
-            1.0 / GREATEST(0.01, LEAST(1.0, base_safety_score + edge_stats.score_sum))
+        safety_score = GREATEST(0.01, LEAST(1.0, ae.base_safety_score + edge_stats.score_sum)),
+        routing_cost = ae.length * (
+            1.0 / GREATEST(0.01, LEAST(1.0, ae.base_safety_score + edge_stats.score_sum))
         )
     FROM edge_stats
+    JOIN affected_edges ae ON ae.id = edge_stats.edge_id
     WHERE road_edges.id = edge_stats.edge_id
 """)
 
