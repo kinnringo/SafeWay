@@ -4,8 +4,10 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:http/http.dart' as http;
-import '../core/theme.dart';
 import 'package:pointer_interceptor/pointer_interceptor.dart';
+import '../core/theme.dart';
+import '../core/api_config.dart';
+import '../services/api_service.dart';
 
 /// 場所・住所の検索結果
 class PlaceResult {
@@ -14,6 +16,7 @@ class PlaceResult {
   final double lat;
   final double lng;
   final double? distanceMeters; // 現在地からの距離（メートル）
+  final String? placeId; // Google Place ID
 
   const PlaceResult({
     required this.displayName,
@@ -21,6 +24,7 @@ class PlaceResult {
     required this.lat,
     required this.lng,
     this.distanceMeters,
+    this.placeId,
   });
 
   PlaceResult copyWith({
@@ -32,6 +36,7 @@ class PlaceResult {
       lat: lat,
       lng: lng,
       distanceMeters: distanceMeters ?? this.distanceMeters,
+      placeId: placeId,
     );
   }
 
@@ -43,6 +48,25 @@ class PlaceResult {
       shortName: parts.isNotEmpty ? parts.first : displayName,
       lat: double.tryParse(json['lat'] as String? ?? '0') ?? 0.0,
       lng: double.tryParse(json['lon'] as String? ?? '0') ?? 0.0,
+    );
+  }
+
+  // Google Places Text Search API の JSON 形式に対応
+  factory PlaceResult.fromGooglePlacesJson(Map<String, dynamic> json) {
+    final name = json['name'] as String? ?? '';
+    final address = json['formatted_address'] as String? ?? '';
+    // formatted_address には "日本、〒123-4567 東京都..." のように国名が含まれることが多いので整形可能
+    final cleanAddress = address.replaceAll(RegExp(r'^日本、(〒\d{3}-\d{4}\s*)?'), '');
+
+    final geometry = json['geometry'] as Map<String, dynamic>?;
+    final location = geometry?['location'] as Map<String, dynamic>?;
+
+    return PlaceResult(
+      shortName: name,
+      displayName: cleanAddress,
+      lat: (location?['lat'] as num?)?.toDouble() ?? 0.0,
+      lng: (location?['lng'] as num?)?.toDouble() ?? 0.0,
+      placeId: json['place_id'] as String?,
     );
   }
 }
@@ -86,8 +110,6 @@ class _MapSearchBarState extends State<MapSearchBar> {
   bool _isSearching = false;
   Timer? _debounceTimer;
 
-  // Nominatim API の利用規約上、User-Agent は必須
-  static const String _userAgent = 'SafeWay-App/1.0 (GPA2026)';
 
   @override
   void initState() {
@@ -189,7 +211,7 @@ class _MapSearchBarState extends State<MapSearchBar> {
   // 検索ロジック
   // ─────────────────────────────────────────
 
-  /// Nominatim API で検索（300ms のデバウンス付き）
+  /// Google Places Text Search API で検索（300ms のデバウンス付き）
   Future<void> _search(String query) async {
     _debounceTimer?.cancel();
     if (query.trim().isEmpty) {
@@ -199,68 +221,109 @@ class _MapSearchBarState extends State<MapSearchBar> {
 
     _debounceTimer = Timer(const Duration(milliseconds: 300), () async {
       if (!mounted) return;
+      
+      const apiKey = ApiConfig.googleMapsApiKey;
+      if (apiKey.isEmpty || apiKey == 'YOUR_GOOGLE_MAPS_API_KEY_HERE') return;
+
       setState(() => _isSearching = true);
 
       try {
-        final Map<String, String> queryParams = {
-          'q': query,
-          'format': 'json',
-          'limit': '5',
-          'accept-language': 'ja',
-          'countrycodes': 'jp', // 日本に絞る
-        };
+        // 1. バックエンドAPIのクエリパラメータを構築
+        final Map<String, String> queryParams = {'query': query};
 
-        // 現在地がある場合、Nominatim にその周辺を優先する viewbox パラメータを指定
         if (widget.currentPosition != null) {
           final cur = widget.currentPosition!;
-          const double delta = 0.09; // 約10km範囲
-          queryParams['viewbox'] =
-              '${cur.longitude - delta},${cur.latitude + delta},${cur.longitude + delta},${cur.latitude - delta}';
-          queryParams['bounded'] = '0'; // 0: 優先度を上げる (1: その範囲のみに制限)
+          queryParams['location'] = '${cur.latitude},${cur.longitude}';
+          queryParams['radius'] = '10000'; // 10km圏内を優先
         }
 
-        final uri = Uri.https('nominatim.openstreetmap.org', '/search', queryParams);
-
-        final response = await http.get(
-          uri,
-          headers: {'User-Agent': _userAgent},
+        // 2. 自社バックエンド（例: http://127.0.0.1:8000/api/places/search）へリクエスト
+        // Uri.parse を用いて baseUrl に安全にパスとクエリを結合します
+        final baseUri = Uri.parse(ApiService.baseUrl);
+        final uri = Uri(
+          scheme: baseUri.scheme,
+          host: baseUri.host,
+          port: baseUri.port,
+          path: '${baseUri.path}/places/search'.replaceAll('//', '/'),
+          queryParameters: queryParams,
         );
+
+        print('[SearchBar] Requesting Backend Proxy: $uri');
+        final response = await http.get(uri);
 
         if (!mounted) return;
 
         if (response.statusCode == 200) {
-          final List<dynamic> data = jsonDecode(response.body);
-          List<PlaceResult> newResults = data
-              .map((e) => PlaceResult.fromJson(e as Map<String, dynamic>))
+          final data = jsonDecode(response.body);
+          final status = data['status'] as String? ?? '';
+          final errorMessage = data['error_message'] as String?;
+
+          // Google Places API 独自のステータスチェック
+          if (status != 'OK' && status != 'ZERO_RESULTS') {
+            print('[SearchBar] Places API error: status=$status, message=$errorMessage');
+            setState(() => _isSearching = false);
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('検索APIエラー: $status ${errorMessage ?? ""}'),
+                  backgroundColor: Colors.orange.shade700,
+                ),
+              );
+            }
+            return;
+          }
+
+          final results = data['results'] as List<dynamic>? ?? [];
+          print('[SearchBar] Found ${results.length} results (status=$status)');
+
+          // JSON パースと距離計算
+          List<PlaceResult> newResults = results
+              .map((e) => PlaceResult.fromGooglePlacesJson(e as Map<String, dynamic>))
               .toList();
 
-          // 現在地からの距離計算とソート
           if (widget.currentPosition != null) {
             final cur = widget.currentPosition!;
             newResults = newResults.map((place) {
               final dist = _calculateDistance(
-                cur.latitude,
-                cur.longitude,
-                place.lat,
-                place.lng,
+                cur.latitude, cur.longitude, place.lat, place.lng,
               );
               return place.copyWith(distanceMeters: dist);
             }).toList();
 
-            // 距離の昇順 (近い順) にソート
+            // 現在地からの距離順にソートして、近隣施設を上位に表示
             newResults.sort((a, b) =>
                 (a.distanceMeters ?? 0.0).compareTo(b.distanceMeters ?? 0.0));
           }
 
           setState(() => _isSearching = false);
-
-          // 結果を Overlay に表示
           _showOverlay(newResults);
         } else {
+          // HTTP 4xx, 5xx のエラーハンドリング
+          print('[SearchBar] HTTP error: ${response.statusCode} ${response.reasonPhrase}');
+          print('[SearchBar] Response body: ${response.body}');
           setState(() => _isSearching = false);
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('検索サーバーエラー (HTTP ${response.statusCode})'),
+                backgroundColor: Colors.red.shade700,
+              ),
+            );
+          }
         }
-      } catch (_) {
-        if (mounted) setState(() => _isSearching = false);
+      } catch (e, stackTrace) {
+        // 通信エラー（CORS, タイムアウト, NW遮断など）のハンドリング
+        print('[SearchBar] Exception: $e');
+        print('[SearchBar] StackTrace: $stackTrace');
+        if (mounted) {
+          setState(() => _isSearching = false);
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('検索中に通信エラーが発生しました'),
+              backgroundColor: Colors.red.shade700,
+            ),
+          );
+        }
       }
     });
   }

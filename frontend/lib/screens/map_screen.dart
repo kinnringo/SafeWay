@@ -930,8 +930,8 @@ class _MapScreenState extends ConsumerState<MapScreen> {
               },
               onPlaceSelected: (place) {
                 final point = LatLng(place.lat, place.lng);
-                // _showSpotDetails を呼ぶことで、自動的に赤ピンが立ち、ボトムシートが表示される
-                _showSpotDetails(point: point); 
+                // placeId を渡すことで、高精度な詳細情報を一発取得
+                _showSpotDetails(point: point, placeId: place.placeId); 
               },
             ),
 
