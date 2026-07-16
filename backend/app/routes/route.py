@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.models.schemas import RouteRequest, RouteResponse, RouteInfo, HazardPoint
 from app.services.roads_snap import snap_route_to_roads
+from app.services.directions import get_shortest_route as _directions_shortest_route
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -331,8 +332,16 @@ def search_route(request: RouteRequest, db: Session = Depends(get_db)):
         # 失敗時は roads_snap.py 内でフォールバックし、元の OSM ルートを返す
         safe_route = snap_route_to_roads(safe_route)
 
-        # 5. 最短ルートを探索 (コスト指標: length)
-        shortest_route = _query_route_info(db, start_node_id, end_node_id, "length")
+        # 5. 最短ルートを探索: Directions API（失敗時は OSM/pgRouting にフォールバック）
+        shortest_route = _directions_shortest_route(
+            start_lat=request.start_lat,
+            start_lng=request.start_lng,
+            end_lat=request.end_lat,
+            end_lng=request.end_lng,
+        )
+        if shortest_route is None:
+            logger.info("Directions API が失敗したため OSM pgRouting にフォールバックします。")
+            shortest_route = _query_route_info(db, start_node_id, end_node_id, "length")
 
         # 6. 安全ルート沿いのエリア型ハザードを検索
         nearby_hazards = _query_nearby_hazards(db, safe_route)
