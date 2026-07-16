@@ -20,6 +20,9 @@ class RouteRequest(BaseModel):
     start_lng: float = Field(..., ge=-180.0, le=180.0, description="出発地の経度")
     end_lat: float = Field(..., ge=-90.0, le=90.0, description="目的地の緯度")
     end_lng: float = Field(..., ge=-180.0, le=180.0, description="目的地の経度")
+    hazard_radius_m: Optional[float] = Field(
+        1000.0, ge=0.0, description="ルート周辺の危険情報を取得する範囲（メートル）。デフォルトは1km（1000m）。"
+    )
 
 
 class RouteInfo(BaseModel):
@@ -39,7 +42,7 @@ class RouteResponse(BaseModel):
     shortest_route: RouteInfo = Field(..., description="最短ルート情報")
     nearby_hazards: list["HazardPoint"] = Field(
         default_factory=list,
-        description="ルート沿い（100m以内）の危険情報（犯罪・野生動物等。道路インフラ情報は含まない）"
+        description="ルート周辺の危険情報（検索範囲はリクエストの hazard_radius_m で指定）"
     )
 
 

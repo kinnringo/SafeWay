@@ -96,8 +96,8 @@ _NEARBY_HAZARDS_SQL = text("""
 # SQLインジェクション防止: cost_column に許可される値のホワイトリスト
 _ALLOWED_COST_COLUMNS = {"routing_cost", "length"}
 
-# 沿道ハザード検索の半径（メートル）
-_HAZARD_SEARCH_RADIUS_M = 100.0
+# 沿道ハザード検索のデフォルト半径（メートル） - 現在は引数で動的に渡されるため定数としては使用しないが、コメントとして残す
+# _HAZARD_SEARCH_RADIUS_M = 100.0
 
 # ---------------------------------------------------------------------------
 # 内部ロジック
@@ -230,9 +230,9 @@ def _coords_to_linestring_wkt(coords: list[list[float]]) -> str:
     return f"LINESTRING({', '.join(point_strs)})"
 
 
-def _query_nearby_hazards(db: Session, route_info: RouteInfo) -> list[HazardPoint]:
+def _query_nearby_hazards(db: Session, route_info: RouteInfo, radius_m: float = 1000.0) -> list[HazardPoint]:
     """
-    ルート沿い（_HAZARD_SEARCH_RADIUS_M 以内）のエリア型ハザードを検索する。
+    ルート沿い（指定した radius_m 以内）のエリア型ハザードを検索する。
     detection（街灯・信号機等）は除外し、犯罪・野生動物等のみを返す。
     """
     coords = _collect_all_coordinates(route_info)
@@ -245,7 +245,7 @@ def _query_nearby_hazards(db: Session, route_info: RouteInfo) -> list[HazardPoin
 
     result = db.execute(
         _NEARBY_HAZARDS_SQL,
-        {"route_wkt": route_wkt, "radius_m": _HAZARD_SEARCH_RADIUS_M}
+        {"route_wkt": route_wkt, "radius_m": radius_m}
     )
     rows = result.all()
 
@@ -344,7 +344,8 @@ def search_route(request: RouteRequest, db: Session = Depends(get_db)):
             shortest_route = _query_route_info(db, start_node_id, end_node_id, "length")
 
         # 6. 安全ルート沿いのエリア型ハザードを検索
-        nearby_hazards = _query_nearby_hazards(db, safe_route)
+        radius = request.hazard_radius_m if request.hazard_radius_m is not None else 1000.0
+        nearby_hazards = _query_nearby_hazards(db, safe_route, radius_m=radius)
 
         return RouteResponse(
             safe_route=safe_route,
