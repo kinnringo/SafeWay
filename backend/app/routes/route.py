@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.models.schemas import RouteRequest, RouteResponse, RouteInfo, HazardPoint
+from app.services.roads_snap import snap_route_to_roads
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -325,6 +326,10 @@ def search_route(request: RouteRequest, db: Session = Depends(get_db)):
 
         # 4. 安全優先ルートを探索 (コスト指標: routing_cost)
         safe_route = _query_route_info(db, start_node_id, end_node_id, "routing_cost")
+
+        # 4b. Roads API（Snap to Roads）でGoogle Mapsの道路形状に合わせてスナップ
+        # 失敗時は roads_snap.py 内でフォールバックし、元の OSM ルートを返す
+        safe_route = snap_route_to_roads(safe_route)
 
         # 5. 最短ルートを探索 (コスト指標: length)
         shortest_route = _query_route_info(db, start_node_id, end_node_id, "length")

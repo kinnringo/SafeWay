@@ -16,5 +16,7 @@ class Settings:
         "DATABASE_URL", 
         f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
     )
+    # Google Maps Platform API キー（Roads API Snap to Roads 用）
+    GOOGLE_MAPS_API_KEY: str = os.getenv("GOOGLE_MAPS_API_KEY", "")
 
 settings = Settings()
