@@ -31,7 +31,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   bool _isLoadingGps = true;
   bool _hasMovedToCurrentLocation = false;
 
-  /// タップされたマーカーのSet（表示中のみ non-empty）
+  /// 地図上に立っているマーカー（目的地ピン等）
   Set<Marker> _markers = {};
 
   /// ルート描画用のポリラインセット
@@ -52,6 +52,11 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   /// ナビ案内中フラグ
   bool _isNavigating = false;
 
+  /// ボトムシートが現在表示中かどうかを示すフラグ
+  ///
+  /// onTap での安全な Navigator.pop を実現するために使用する。
+  /// ボトムシートが表示されていない状態で誤って地図画面自体がポップしないよう防衛する。
+  bool _isPlaceSheetOpen = false;
 
   static const LatLng _defaultCenter = LatLng(36.3895, 139.0634); // 前橋駅
 
@@ -112,7 +117,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     setState(() {
       _currentRouteResponse = response;
       _polylines = newPolylines;
-      _selectedRouteType = _RouteType.safe; // 毎回安全優先をデフォルト選択
+      _selectedRouteType = _RouteType.safe;
     });
   }
 
@@ -156,15 +161,13 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   // ルート探索
   // ─────────────────────────────────────────────────────────────────────
 
-  /// 外部（ボトムシートのルートボタン）からルート探索を起動するエントリポイント
+  /// ルートボタンまたは外部からルート探索を実行するエントリポイント
   Future<void> fetchAndDrawRoute({
     required LatLng start,
     required LatLng end,
   }) async {
     if (_isLoadingRoute) return;
-    setState(() {
-      _isLoadingRoute = true;
-    });
+    setState(() => _isLoadingRoute = true);
 
     try {
       final apiService = ref.read(apiServiceProvider);
@@ -215,7 +218,6 @@ class _MapScreenState extends ConsumerState<MapScreen> {
 
     setState(() => _isNavigating = true);
 
-    // カメラを現在地にズームイン
     _mapController?.animateCamera(
       CameraUpdate.newLatLngZoom(_currentPosition!, 17.0),
     );
@@ -227,7 +229,98 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   }
 
   // ─────────────────────────────────────────────────────────────────────
-  // GPS追従
+  // スポット表示の共通ヘルパー
+  // ─────────────────────────────────────────────────────────────────────
+
+  /// POI タップ・長押しで呼ばれる、マーカー設置とボトムシート表示の共通処理。
+  ///
+  /// [point]   地図上の座標
+  /// [placeId] POI タップ時のみ存在する Google Place ID
+  ///
+  /// マーカーには Web 互換性の高い `BitmapDescriptor.defaultMarker`（赤ピン）を使用する。
+  void _showSpotDetails({required LatLng point, String? placeId}) {
+    setState(() {
+      _isPlaceSheetOpen = true;
+      _markers = {
+        Marker(
+          markerId: MarkerId(placeId ?? 'selected_location'),
+          position: point,
+          // BitmapDescriptor.defaultMarker: Web / iOS / Android すべてで確実に動作する赤ピン
+          icon: BitmapDescriptor.defaultMarker,
+        ),
+      };
+    });
+
+    showPlaceInfoSheet(
+      context: context,
+      tappedPoint: point,
+      placeId: placeId,
+      onRouteRequested: (LatLng destination) {
+        if (_currentPosition == null) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('現在地が取得できていません。GPS を確認してください。'),
+            ),
+          );
+          return;
+        }
+        fetchAndDrawRoute(start: _currentPosition!, end: destination);
+      },
+    ).then((_) {
+      if (mounted) {
+        setState(() {
+          _isPlaceSheetOpen = false;
+          // ナビ中でなければ、目的地マーカーをクリア
+          if (!_isNavigating) {
+            _markers = {};
+          }
+        });
+      }
+    });
+  }
+
+  // ─────────────────────────────────────────────────────────────────────
+  // 地図インタラクションハンドラ（本家 Google Map 準拠）
+  // ─────────────────────────────────────────────────────────────────────
+
+  /// 1. 通常タップ：「何もない場所」のタップ
+  ///
+  /// ボトムシートが開いている場合のみ安全に閉じる。
+  /// `_isPlaceSheetOpen` フラグで判定することで、ボトムシートが存在しない状態で
+  /// `Navigator.pop(context)` が呼ばれて地図画面自体がポップするバグを防ぐ。
+  void _onMapTap(LatLng point) {
+    if (_isSuggestionsVisible || _isNavigating) return;
+
+    if (_isPlaceSheetOpen) {
+      // ボトムシートが開いている時のみ、安全に閉じる
+      Navigator.pop(context);
+      // _isPlaceSheetOpen は .then() ハンドラ内で false に戻る
+    }
+
+    // マーカーをクリア
+    if (_markers.isNotEmpty) {
+      setState(() => _markers = {});
+    }
+  }
+
+  /// 2. POI（店舗・スポットアイコン）タップ
+  ///
+  /// google_maps_flutter 2.17.x現在、フロント側の GoogleMap Widget に `onPoiTap` は公開されていない。
+  /// 長押し（`onLongPress`）ハンドラのみで対応する（下記参照）。
+  /// 将来的にパッケージが対応した場合に拡張する。
+
+  /// 3. 長押し：指定した地点へのピン立て
+  ///
+  /// `onPoiTap` が現在の Google Maps SDK バージョンで公開されていないため、
+  /// 長押しのみで山所情報の取得・表示を実現する。
+  /// Web 環境でも確実に動作する。
+  void _onLongPress(LatLng point) {
+    if (_isSuggestionsVisible || _isNavigating) return;
+    _showSpotDetails(point: point);
+  }
+
+  // ─────────────────────────────────────────────────────────────────────
+  // GPS 追従
   // ─────────────────────────────────────────────────────────────────────
 
   @override
@@ -298,55 +391,6 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     });
   }
 
-  // ─────────────────────────────────────────────────────────────────────
-  // マップ操作
-  // ─────────────────────────────────────────────────────────────────────
-
-  /// 地図タップ時の処理
-  void _onMapTap(LatLng point) {
-    // サジェスト表示中・ナビ中は地図タップを無視
-    if (_isSuggestionsVisible || _isNavigating) return;
-
-    setState(() {
-      _markers = {
-        Marker(
-          markerId: const MarkerId('tapped_location'),
-          position: point,
-          icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
-        ),
-      };
-    });
-
-    // 場所情報ボトムシートを表示（ルートボタン付き）
-    showPlaceInfoSheet(
-      context: context,
-      tappedPoint: point,
-      onRouteRequested: (LatLng destination) {
-        // 現在地が未取得の場合はエラーを表示
-        if (_currentPosition == null) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('現在地が取得できていません。GPS を確認してください。'),
-            ),
-          );
-          return;
-        }
-        // ルート探索を実行（ボトムシートはコールバック呼び出し前に閉じられている）
-        fetchAndDrawRoute(
-          start: _currentPosition!,
-          end: destination,
-        );
-      },
-    ).then((_) {
-      // ボトムシートが閉じたらマーカーをクリア
-      if (mounted) {
-        setState(() {
-          _markers = {};
-        });
-      }
-    });
-  }
-
   /// カメラ/ギャラリー選択ボトムシート（ActionButtonsからも呼ばれる）
   void _showImageSourceBottomSheet() {
     showModalBottomSheet(
@@ -371,21 +415,28 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                 ),
               ),
               ListTile(
-                leading: const Icon(Icons.camera_alt, color: AppColors.primaryNavy),
+                leading: const Icon(Icons.camera_alt,
+                    color: AppColors.primaryNavy),
                 title: const Text('カメラで撮影（精度: 高）'),
-                subtitle: const Text('GPS+コンパスで街灯の実際の位置を推定します'),
+                subtitle:
+                    const Text('GPS+コンパスで街灯の実際の位置を推定します'),
                 onTap: () {
                   Navigator.pop(context);
-                  ref.read(selectedImageProvider.notifier).pickImageFromCamera();
+                  ref
+                      .read(selectedImageProvider.notifier)
+                      .pickImageFromCamera();
                 },
               ),
               ListTile(
-                leading: const Icon(Icons.photo_library, color: AppColors.primaryNavy),
+                leading: const Icon(Icons.photo_library,
+                    color: AppColors.primaryNavy),
                 title: const Text('ギャラリーから写真を選択'),
                 subtitle: const Text('EXIFのGPS情報を自動抽出します'),
                 onTap: () {
                   Navigator.pop(context);
-                  ref.read(selectedImageProvider.notifier).pickImageFromGallery();
+                  ref
+                      .read(selectedImageProvider.notifier)
+                      .pickImageFromGallery();
                 },
               ),
               const SizedBox(height: 8),
@@ -427,12 +478,12 @@ class _MapScreenState extends ConsumerState<MapScreen> {
           ),
           color: Colors.white.withValues(alpha: 0.97),
           child: Padding(
-            padding:
-                const EdgeInsets.symmetric(horizontal: 16.0, vertical: 14.0),
+            padding: const EdgeInsets.symmetric(
+                horizontal: 16.0, vertical: 14.0),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                // ── ヘッダー ──────────────────────────────────────────
+                // ── ヘッダー ──
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
@@ -453,10 +504,9 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                 ),
                 const SizedBox(height: 12),
 
-                // ── ルート選択タイル ───────────────────────────────────
+                // ── ルート選択タイル ──
                 Row(
                   children: [
-                    // 安全優先ルート
                     Expanded(
                       child: _buildRouteSelectorTile(
                         label: '安全優先',
@@ -468,14 +518,12 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                       ),
                     ),
                     const SizedBox(width: 8),
-                    // 仕切り線（VerticalDivider 不使用でバグ防止）
                     Container(
                       width: 1,
                       height: 70,
                       color: Colors.grey.shade300,
                     ),
                     const SizedBox(width: 8),
-                    // 最短距離ルート
                     Expanded(
                       child: _buildRouteSelectorTile(
                         label: '最短距離',
@@ -490,19 +538,21 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                 ),
                 const SizedBox(height: 12),
 
-                // ── 「案内を開始」ボタン ──────────────────────────────
+                // ── 「案内を開始」ボタン ──
                 SizedBox(
                   width: double.infinity,
                   child: FilledButton.icon(
                     onPressed: _startNavigation,
                     style: FilledButton.styleFrom(
                       backgroundColor: AppColors.primaryNavy,
-                      padding: const EdgeInsets.symmetric(vertical: 13),
+                      padding:
+                          const EdgeInsets.symmetric(vertical: 13),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12),
                       ),
                     ),
-                    icon: const Icon(Icons.navigation, color: Colors.white),
+                    icon: const Icon(Icons.navigation,
+                        color: Colors.white),
                     label: const Text(
                       '案内を開始',
                       style: TextStyle(
@@ -515,7 +565,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                 ),
                 const SizedBox(height: 10),
 
-                // ── 帰属表記（ライセンス設計指針 準拠）────────────────
+                // ── 帰属表記（ライセンス設計指針 §2.3 準拠）──
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
@@ -552,9 +602,12 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       onTap: () => setState(() => _selectedRouteType = routeType),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 180),
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        padding:
+            const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
         decoration: BoxDecoration(
-          color: isSelected ? color.withValues(alpha: 0.08) : Colors.transparent,
+          color: isSelected
+              ? color.withValues(alpha: 0.08)
+              : Colors.transparent,
           borderRadius: BorderRadius.circular(10),
           border: Border.all(
             color: isSelected ? color : Colors.transparent,
@@ -593,7 +646,8 @@ class _MapScreenState extends ConsumerState<MapScreen> {
             const SizedBox(height: 2),
             Text(
               '安全: ${(score * 100).toStringAsFixed(0)}%',
-              style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+              style:
+                  TextStyle(fontSize: 11, color: Colors.grey.shade600),
             ),
           ],
         ),
@@ -614,8 +668,9 @@ class _MapScreenState extends ConsumerState<MapScreen> {
         ? _currentRouteResponse!.safeRoute
         : _currentRouteResponse!.shortestRoute;
 
-    final routeLabel =
-        _selectedRouteType == _RouteType.safe ? '安全優先ルート' : '最短距離ルート';
+    final routeLabel = _selectedRouteType == _RouteType.safe
+        ? '安全優先ルート'
+        : '最短距離ルート';
     final routeColor = _selectedRouteType == _RouteType.safe
         ? const Color(0xFF2ECC71)
         : const Color(0xFF3498DB);
@@ -639,11 +694,10 @@ class _MapScreenState extends ConsumerState<MapScreen> {
           child: SafeArea(
             bottom: false,
             child: Padding(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              padding: const EdgeInsets.symmetric(
+                  horizontal: 16, vertical: 12),
               child: Row(
                 children: [
-                  // ルート種別インジケーター
                   Container(
                     width: 10,
                     height: 10,
@@ -653,8 +707,6 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                     ),
                   ),
                   const SizedBox(width: 10),
-
-                  // ルート情報テキスト
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -672,9 +724,9 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                         Text(
                           routeInfo.distanceM >= 1000
                               ? '総距離: ${(routeInfo.distanceM / 1000).toStringAsFixed(1)} km  ・  '
-                                '安全スコア: ${(routeInfo.safetyScore * 100).toStringAsFixed(0)}%'
+                                  '安全スコア: ${(routeInfo.safetyScore * 100).toStringAsFixed(0)}%'
                               : '総距離: ${routeInfo.distanceM.toStringAsFixed(0)} m  ・  '
-                                '安全スコア: ${(routeInfo.safetyScore * 100).toStringAsFixed(0)}%',
+                                  '安全スコア: ${(routeInfo.safetyScore * 100).toStringAsFixed(0)}%',
                           style: TextStyle(
                             color: Colors.white.withValues(alpha: 0.8),
                             fontSize: 11,
@@ -683,8 +735,6 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                       ],
                     ),
                   ),
-
-                  // 案内終了ボタン
                   TextButton(
                     onPressed: _stopNavigation,
                     style: TextButton.styleFrom(
@@ -724,7 +774,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     final imageState = ref.watch(selectedImageProvider);
 
     return Scaffold(
-      // ナビ中はAppBarを非表示
+      // ナビ中は AppBar を非表示
       appBar: _isNavigating
           ? null
           : AppBar(
@@ -735,7 +785,8 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                   Text(
                     'SafeWay',
                     style: TextStyle(
-                        fontWeight: FontWeight.bold, letterSpacing: 1.2),
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 1.2),
                   ),
                 ],
               ),
@@ -753,7 +804,8 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                         size: 40,
                       ),
                       children: const [
-                        Text('GPA 2026 アプリ部門受賞を目指す「安心」ナビゲーション。'),
+                        Text(
+                            'GPA 2026 アプリ部門受賞を目指す「安心」ナビゲーション。'),
                         SizedBox(height: 8),
                         Text('Phase 3: 場所検索・タップ詳細・API仕様書対応'),
                         SizedBox(height: 8),
@@ -763,7 +815,8 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                         ),
                         Text(
                           'https://www.openstreetmap.org/copyright',
-                          style: TextStyle(fontSize: 12, color: Colors.blue),
+                          style: TextStyle(
+                              fontSize: 12, color: Colors.blue),
                         ),
                       ],
                     );
@@ -774,7 +827,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       body: Stack(
         children: [
           // ── 1. Google Maps 本体 ──────────────────────────────────────
-          // AbsorbPointer でサジェスト表示中はネイティブタッチを遮断（PlatformView 貫通バグ対策）
+          // AbsorbPointer でサジェスト表示中はネイティブタッチを遮断
           AbsorbPointer(
             absorbing: _isSuggestionsVisible,
             child: GoogleMap(
@@ -782,9 +835,11 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                 setState(() {
                   _mapController = controller;
                 });
-                if (_currentPosition != null && !_hasMovedToCurrentLocation) {
+                if (_currentPosition != null &&
+                    !_hasMovedToCurrentLocation) {
                   controller.animateCamera(
-                    CameraUpdate.newLatLngZoom(_currentPosition!, 15.0),
+                    CameraUpdate.newLatLngZoom(
+                        _currentPosition!, 15.0),
                   );
                   _hasMovedToCurrentLocation = true;
                 }
@@ -793,7 +848,11 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                 target: _defaultCenter,
                 zoom: 15.0,
               ),
+              // ─ 本家 Google Map 準拠のインタラクションハンドラ ─
               onTap: _onMapTap,
+              // onPoiTap: google_maps_flutter 2.17.x 時点で公開なし。
+              // POI情報は長押し（onLongPress）経由で全て対応する。
+              onLongPress: _onLongPress,
               markers: _markers,
               polylines: _polylines,
               myLocationEnabled: true,
@@ -804,10 +863,10 @@ class _MapScreenState extends ConsumerState<MapScreen> {
             ),
           ),
 
-          // ── 2. ナビ中HUD（最前面：AppBar代替）───────────────────────
+          // ── 2. ナビ中 HUD（最前面: AppBar代替）─────────────────────
           _buildNavigationHud(),
 
-          // ── 3. 上部：検索バー（ナビ中は非表示）──────────────────────
+          // ── 3. 上部：検索バー（ナビ中は非表示）─────────────────────
           if (!_isNavigating)
             MapSearchBar(
               mapController: _mapController,
@@ -817,7 +876,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
               },
             ),
 
-          // ── 4. 画像プレビューカード（選択された時だけ・ナビ中は非表示）
+          // ── 4. 画像プレビューカード（ナビ中は非表示）────────────────
           if (imageState.image != null && !_isNavigating)
             ImagePreviewCard(imageState: imageState),
 
@@ -829,10 +888,10 @@ class _MapScreenState extends ConsumerState<MapScreen> {
               onCameraPressed: _showImageSourceBottomSheet,
             ),
 
-          // ── 6. ルート比較カード（ルート取得後・ナビ前のみ表示）───────
+          // ── 6. ルート比較カード（ルート取得後・ナビ前のみ）──────────
           _buildRouteCompareCard(),
 
-          // ── 7. ルート探索中のローディングインジケーター ──────────────
+          // ── 7. ルート探索中ローディングインジケーター ────────────────
           if (_isLoadingRoute)
             Positioned(
               top: 80,
@@ -845,7 +904,8 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                       padding: const EdgeInsets.symmetric(
                           vertical: 8, horizontal: 20),
                       decoration: BoxDecoration(
-                        color: AppColors.primaryNavy.withValues(alpha: 0.9),
+                        color:
+                            AppColors.primaryNavy.withValues(alpha: 0.9),
                         borderRadius: BorderRadius.circular(20),
                         boxShadow: [
                           BoxShadow(
@@ -896,7 +956,8 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                       padding: const EdgeInsets.symmetric(
                           vertical: 8, horizontal: 16),
                       decoration: BoxDecoration(
-                        color: AppColors.white.withValues(alpha: 0.9),
+                        color:
+                            AppColors.white.withValues(alpha: 0.9),
                         borderRadius: BorderRadius.circular(20),
                         boxShadow: [
                           BoxShadow(
@@ -912,7 +973,8 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                           SizedBox(
                             width: 14,
                             height: 14,
-                            child: CircularProgressIndicator(strokeWidth: 2),
+                            child: CircularProgressIndicator(
+                                strokeWidth: 2),
                           ),
                           SizedBox(width: 10),
                           Text(
