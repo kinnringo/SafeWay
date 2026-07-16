@@ -325,3 +325,30 @@ OSM道路ネットワーク（新潟県・群馬県）と pgRouting エンジン
 | `safety_points` | 安全/危険ポイントの統合テーブル（detections, crime_reports からリンク） |
 | `crime_reports` | 犯罪情報（行政データ連携用、未実装） |
 | `road_edges` | OSM道路ネットワーク（pgRouting用、新潟県・群馬県データ投入済み） |
+---
+
+## GET /api/places/search
+
+Google Places API (Text Search) の中継（プロキシ）エンドポイント。
+フロントエンド環境における CORS 制限の回避、および API キー隠蔽のために使用する。
+
+### 実装状況: ✅ 実装済み
+
+### リクエスト形式: URLクエリパラメータ
+
+| パラメータ | 型 | 必須 | 説明 |
+|---|---|---|---|
+| `query` | string | ✅ | 検索キーワード（例: "コンビニ"、"東京駅"） |
+| `location` | string | ❌ | 検索中心地の現在地（例: "35.6812,139.7671"） |
+| `radius` | string | ❌ | 検索範囲メートル（例: "10000"） |
+
+### 内部処理フロー
+
+1. フロントエンドから受け取った `query`, `location`, `radius` パラメータを受け取る
+2. バックエンド側で環境変数の `GOOGLE_MAPS_API_KEY` を付加し、同時に `language=ja`, `region=jp` を追加する
+3. `https://maps.googleapis.com/maps/api/place/textsearch/json` にリクエストを送信する
+4. Google API から返ってきた JSON レスポンスをそのままフロントエンドに返却する
+
+### レスポンス
+
+Google Places API のレスポンス形式に準拠する JSON オブジェクトが返却される。
