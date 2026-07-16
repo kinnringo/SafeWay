@@ -86,12 +86,16 @@ class MapSearchBar extends StatefulWidget {
   /// サジェストから場所が選択された時に呼ばれるコールバック
   final ValueChanged<PlaceResult>? onPlaceSelected;
 
+  /// 検索結果のリストが取得された時に呼ばれるコールバック
+  final ValueChanged<List<PlaceResult>>? onSearchResultsFetched;
+
   const MapSearchBar({
     super.key,
     required this.mapController,
     this.currentPosition,
     this.onSuggestionsVisibilityChanged,
     this.onPlaceSelected,
+    this.onSearchResultsFetched,
   });
 
   @override
@@ -110,12 +114,22 @@ class _MapSearchBarState extends State<MapSearchBar> {
   bool _isSearching = false;
   Timer? _debounceTimer;
 
+  // 最新の検索結果をキャッシュしておくリスト
+  List<PlaceResult> _lastResults = [];
 
   @override
   void initState() {
     super.initState();
     _focusNode.addListener(() {
-      if (!_focusNode.hasFocus) {
+      if (_focusNode.hasFocus) {
+        // フォーカスが当たった際、文字とキャッシュがあればサジェストを復活
+        if (_searchController.text.isNotEmpty && _lastResults.isNotEmpty) {
+          // すでに表示されていなければ再表示
+          if (_overlayEntry == null) {
+            _showOverlay(_lastResults);
+          }
+        }
+      } else {
         // タップ完了(PointerUp)を待ってからオーバーレイを閉じる。
         // 即座に閉じると PointerDown でフォーカスが外れた時点でオーバーレイが
         // 消えてしまい、サジェストの onTap が届かなくなるため遅延を入れる。
@@ -149,6 +163,8 @@ class _MapSearchBarState extends State<MapSearchBar> {
     _hideOverlay();
     if (results.isEmpty || !mounted) return;
 
+    widget.onSearchResultsFetched?.call(results);
+
     _overlayEntry = OverlayEntry(
       builder: (ctx) {
         final screenWidth = MediaQuery.sizeOf(ctx).width;
@@ -166,17 +182,19 @@ class _MapSearchBarState extends State<MapSearchBar> {
             child: SizedBox(
               // 検索バーと同じ幅（left:12, right:12 で 24px 引く）
               width: screenWidth - 24,
-              child: PointerInterceptor(
-                child: Material(
-                  elevation: 8,
-                  borderRadius: BorderRadius.circular(14),
-                  clipBehavior: Clip.hardEdge,
-                  child: ListView.separated(
-                    padding: EdgeInsets.zero,
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    itemCount: results.length,
-                    separatorBuilder: (_, __) => Divider(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 300),
+                child: PointerInterceptor(
+                  child: Material(
+                    elevation: 8,
+                    borderRadius: BorderRadius.circular(14),
+                    clipBehavior: Clip.hardEdge,
+                    child: ListView.separated(
+                      padding: EdgeInsets.zero,
+                      shrinkWrap: true,
+                      physics: const ClampingScrollPhysics(),
+                      itemCount: results.length,
+                      separatorBuilder: (_, __) => Divider(
                       height: 1,
                       color: Colors.grey.shade200,
                     ),
@@ -189,6 +207,7 @@ class _MapSearchBarState extends State<MapSearchBar> {
                     },
                   ),
                 ),
+              ),
               ),
             ),
           ),
@@ -294,6 +313,9 @@ class _MapSearchBarState extends State<MapSearchBar> {
             newResults.sort((a, b) =>
                 (a.distanceMeters ?? 0.0).compareTo(b.distanceMeters ?? 0.0));
           }
+
+          // 検索成功時に結果をキャッシュに保存
+          _lastResults = newResults;
 
           setState(() => _isSearching = false);
           _showOverlay(newResults);
@@ -404,6 +426,8 @@ class _MapSearchBarState extends State<MapSearchBar> {
                           icon: const Icon(Icons.clear, color: Colors.grey),
                           onPressed: () {
                             _searchController.clear();
+                            // クリア時はキャッシュも完全に破棄する
+                            _lastResults.clear();
                             _hideOverlay();
                           },
                         )

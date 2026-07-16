@@ -12,6 +12,7 @@ import '../core/api_config.dart';
 import '../widgets/image_preview_card.dart';
 import '../widgets/action_buttons.dart';
 import '../widgets/search_bar_widget.dart';
+import '../widgets/post_bottom_sheet.dart';
 import '../widgets/place_info_sheet.dart';
 import '../models/route_models.dart';
 import '../services/api_service.dart';
@@ -445,61 +446,6 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     });
   }
 
-  /// カメラ/ギャラリー選択ボトムシート（ActionButtonsからも呼ばれる）
-  void _showImageSourceBottomSheet() {
-    showModalBottomSheet(
-      context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (BuildContext context) {
-        return SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Padding(
-                padding: EdgeInsets.symmetric(vertical: 16),
-                child: Text(
-                  '街の状況を投稿',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                    color: AppColors.primaryNavy,
-                  ),
-                ),
-              ),
-              ListTile(
-                leading: const Icon(Icons.camera_alt,
-                    color: AppColors.primaryNavy),
-                title: const Text('カメラで撮影（精度: 高）'),
-                subtitle:
-                    const Text('GPS+コンパスで街灯の実際の位置を推定します'),
-                onTap: () {
-                  Navigator.pop(context);
-                  ref
-                      .read(selectedImageProvider.notifier)
-                      .pickImageFromCamera();
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.photo_library,
-                    color: AppColors.primaryNavy),
-                title: const Text('ギャラリーから写真を選択'),
-                subtitle: const Text('EXIFのGPS情報を自動抽出します'),
-                onTap: () {
-                  Navigator.pop(context);
-                  ref
-                      .read(selectedImageProvider.notifier)
-                      .pickImageFromGallery();
-                },
-              ),
-              const SizedBox(height: 8),
-            ],
-          ),
-        );
-      },
-    );
-  }
 
   @override
   void dispose() {
@@ -820,6 +766,20 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   }
 
   // ─────────────────────────────────────────────────────────────────────
+  // 投稿用ボトムシートの表示
+  // ─────────────────────────────────────────────────────────────────────
+  void _showPostBottomSheet() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true, // キーボード表示時にシート全体を押し上げるために必要
+      backgroundColor: Colors.transparent, // シート側の角丸を活かすため
+      builder: (context) {
+        return const PostBottomSheet();
+      },
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────────────────
   // build
   // ─────────────────────────────────────────────────────────────────────
 
@@ -933,6 +893,42 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                 // placeId を渡すことで、高精度な詳細情報を一発取得
                 _showSpotDetails(point: point, placeId: place.placeId); 
               },
+              onSearchResultsFetched: (results) {
+                if (results.isEmpty) return;
+
+                final Set<Marker> newMarkers = {};
+                for (int i = 0; i < results.length; i++) {
+                  final place = results[i];
+                  final point = LatLng(place.lat, place.lng);
+                  
+                  newMarkers.add(
+                    Marker(
+                      markerId: MarkerId('search_result_$i'),
+                      position: point,
+                      icon: BitmapDescriptor.defaultMarker,
+                      onTap: () {
+                        // いずれかのピンをタップした際に、その店舗の詳細情報を表示
+                        _showSpotDetails(point: point, placeId: place.placeId);
+                      },
+                    ),
+                  );
+                }
+
+                setState(() {
+                  _markers = newMarkers;
+                });
+                
+                // 必要に応じて、最初の検索結果の場所にカメラを移動させる
+                if (results.isNotEmpty) {
+                  final firstPlace = results.first;
+                  _mapController?.animateCamera(
+                    CameraUpdate.newLatLngZoom(
+                      LatLng(firstPlace.lat, firstPlace.lng),
+                      14.0, // 周辺が見渡せるズームレベル
+                    ),
+                  );
+                }
+              },
             ),
 
           // ── 4. 画像プレビューカード（ナビ中は非表示）────────────────
@@ -944,7 +940,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
             ActionButtons(
               mapController: _mapController,
               currentPosition: _currentPosition,
-              onCameraPressed: _showImageSourceBottomSheet,
+              onCameraPressed: _showPostBottomSheet,
             ),
 
           // ── 6. ルート比較カード（ルート取得後・ナビ前のみ）──────────
