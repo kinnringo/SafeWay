@@ -59,11 +59,15 @@ class MapSearchBar extends StatefulWidget {
   /// true = 表示中、false = 非表示
   final ValueChanged<bool>? onSuggestionsVisibilityChanged;
 
+  /// サジェストから場所が選択された時に呼ばれるコールバック
+  final ValueChanged<PlaceResult>? onPlaceSelected;
+
   const MapSearchBar({
     super.key,
     required this.mapController,
     this.currentPosition,
     this.onSuggestionsVisibilityChanged,
+    this.onPlaceSelected,
   });
 
   @override
@@ -276,6 +280,7 @@ class _MapSearchBarState extends State<MapSearchBar> {
 
   /// 検索結果の場所を選択して Google Maps カメラを移動
   void _selectPlace(PlaceResult place) {
+    widget.onPlaceSelected?.call(place);
     widget.mapController?.animateCamera(
       CameraUpdate.newLatLngZoom(LatLng(place.lat, place.lng), 16.0),
     );

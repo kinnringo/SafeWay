@@ -7,6 +7,11 @@ import '../core/api_config.dart';
 import 'package:pointer_interceptor/pointer_interceptor.dart';
 
 /// 場所情報のデータモデル
+///
+/// Google Places Details API / Nearby Search / Nominatim 逆ジオコーディングの
+/// 結果を統一的に保持する。
+/// ⚠️ ライセンス設計指針 §2.2 準拠: 各フィールドは State 上のメモリにのみ保持し、
+/// SafeWay 独自の DB への永続保存・再利用は行わない。
 class PlaceDetail {
   final String name;
   final String address;
@@ -14,8 +19,18 @@ class PlaceDetail {
   final double? rating;
   final int? userRatingsTotal;
   final bool? isOpenNow;
-  final List<String> photoReferences; // Google Places API の photo_reference
+  final List<String> photoReferences;
   final bool fromPlacesApi;
+
+  // ── 詳細情報フィールド（Place Details API から一時取得） ──
+  /// 電話番号 (formatted_phone_number)
+  final String? phoneNumber;
+
+  /// 公式ウェブサイト URL (website)
+  final String? website;
+
+  /// 曜日ごとの営業時間テキスト (opening_hours.weekday_text)
+  final List<String>? weekdayText;
 
   const PlaceDetail({
     required this.name,
@@ -26,29 +41,34 @@ class PlaceDetail {
     this.isOpenNow,
     this.photoReferences = const [],
     this.fromPlacesApi = false,
+    this.phoneNumber,
+    this.website,
+    this.weekdayText,
   });
 }
 
-/// 地図タップ時に下から出るボトムシート
+/// 地図タップ・長押し・POI タップ時に下から出るボトムシート
 ///
-/// 1. Google Places API Nearby Search で周辺施設を検索
-/// 2. 施設が見つかれば：名称・評価・営業状況・写真を表示
-/// 3. 施設がなければ：Nominatim 逆ジオコーディングで住所のみ表示
+/// 情報取得の優先順位:
+/// 1. [placeId] が渡された場合 → Place Details API からピンポイント詳細取得
+/// 2. [placeId] なし または Details API 失敗 → Nearby Search でフォールバック
+/// 3. Nearby Search 失敗 → Nominatim 逆ジオコーディングにフォールバック
 ///
-/// [onRouteRequested] が指定された場合、ルートボタンを表示する。
-/// タップ時に [tappedPoint] を引数としてコールバックが呼ばれる。
+/// [onRouteRequested] が指定された場合、場所名右隣に「ルート」ボタンを表示する。
 Future<void> showPlaceInfoSheet({
   required BuildContext context,
   required LatLng tappedPoint,
+  String? placeId,
   void Function(LatLng destination)? onRouteRequested,
 }) async {
-  showModalBottomSheet(
+  return showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
     backgroundColor: Colors.transparent,
     builder: (_) => PointerInterceptor(
       child: _PlaceInfoSheet(
         tappedPoint: tappedPoint,
+        placeId: placeId,
         onRouteRequested: onRouteRequested,
       ),
     ),
@@ -57,10 +77,12 @@ Future<void> showPlaceInfoSheet({
 
 class _PlaceInfoSheet extends StatefulWidget {
   final LatLng tappedPoint;
+  final String? placeId;
   final void Function(LatLng destination)? onRouteRequested;
 
   const _PlaceInfoSheet({
     required this.tappedPoint,
+    this.placeId,
     this.onRouteRequested,
   });
 
@@ -81,7 +103,22 @@ class _PlaceInfoSheetState extends State<_PlaceInfoSheet> {
   }
 
   Future<void> _fetchPlaceDetail() async {
-    // 1. Google Places API で周辺施設を検索
+    // 1. placeId がある場合は Place Details API から優先取得
+    if (widget.placeId != null) {
+      final detailsResult =
+          await _fetchFromPlaceDetailsApi(widget.placeId!);
+      if (detailsResult != null) {
+        if (mounted) {
+          setState(() {
+            _placeDetail = detailsResult;
+            _isLoading = false;
+          });
+        }
+        return;
+      }
+    }
+
+    // 2. Nearby Search で周辺施設を検索
     final placesResult = await _fetchFromPlacesApi();
     if (placesResult != null) {
       if (mounted) {
@@ -93,7 +130,7 @@ class _PlaceInfoSheetState extends State<_PlaceInfoSheet> {
       return;
     }
 
-    // 2. Places で見つからなかった場合は Nominatim にフォールバック
+    // 3. Nominatim 逆ジオコーディングにフォールバック
     final nominatimResult = await _fetchFromNominatim();
     if (mounted) {
       setState(() {
@@ -103,9 +140,76 @@ class _PlaceInfoSheetState extends State<_PlaceInfoSheet> {
     }
   }
 
-  /// Google Places API Nearby Search で施設情報を取得
+  /// Google Place Details API からピンポイントで詳細情報を取得
+  ///
+  /// 電話番号・ウェブサイト・営業時間の曜日テキストを含む詳細を返す。
+  Future<PlaceDetail?> _fetchFromPlaceDetailsApi(String placeId) async {
+    const key = ApiConfig.googleMapsApiKey;
+    if (key == 'YOUR_GOOGLE_MAPS_API_KEY_HERE' || key.isEmpty) {
+      return null;
+    }
+
+    try {
+      final uri = Uri.https(
+        'maps.googleapis.com',
+        '/maps/api/place/details/json',
+        {
+          'place_id': placeId,
+          // 必要なフィールドのみ指定してリクエストコスト最小化
+          'fields':
+              'name,vicinity,types,rating,user_ratings_total,'
+              'opening_hours,formatted_phone_number,website,photos',
+          'language': 'ja',
+          'key': key,
+        },
+      );
+
+      final response =
+          await http.get(uri).timeout(const Duration(seconds: 6));
+      if (response.statusCode != 200) return null;
+
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      final result = data['result'] as Map<String, dynamic>?;
+      if (result == null) return null;
+
+      final photos = (result['photos'] as List<dynamic>?)
+              ?.map((p) => p['photo_reference'] as String)
+              .take(5)
+              .toList() ??
+          [];
+
+      final openingHours =
+          result['opening_hours'] as Map<String, dynamic>?;
+      final isOpenNow = openingHours?['open_now'] as bool?;
+      final weekdayText =
+          (openingHours?['weekday_text'] as List<dynamic>?)
+              ?.cast<String>()
+              .toList();
+
+      final types =
+          (result['types'] as List<dynamic>?)?.cast<String>() ?? [];
+      final category = types.isNotEmpty ? types.first : null;
+
+      return PlaceDetail(
+        name: result['name'] as String? ?? 'この場所',
+        address: result['vicinity'] as String? ?? '',
+        category: category,
+        rating: (result['rating'] as num?)?.toDouble(),
+        userRatingsTotal: result['user_ratings_total'] as int?,
+        isOpenNow: isOpenNow,
+        photoReferences: photos,
+        fromPlacesApi: true,
+        phoneNumber: result['formatted_phone_number'] as String?,
+        website: result['website'] as String?,
+        weekdayText: weekdayText,
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Google Places API Nearby Search で周辺施設を取得
   Future<PlaceDetail?> _fetchFromPlacesApi() async {
-    // APIキーが未設定の場合はスキップ
     const key = ApiConfig.googleMapsApiKey;
     if (key == 'YOUR_GOOGLE_MAPS_API_KEY_HERE' || key.isEmpty) {
       return null;
@@ -120,7 +224,7 @@ class _PlaceInfoSheetState extends State<_PlaceInfoSheet> {
         '/maps/api/place/nearbysearch/json',
         {
           'location': '$lat,$lng',
-          'radius': '50', // タップ地点から50m以内の施設を検索
+          'radius': '50',
           'language': 'ja',
           'key': key,
         },
@@ -128,29 +232,24 @@ class _PlaceInfoSheetState extends State<_PlaceInfoSheet> {
 
       final response =
           await http.get(uri).timeout(const Duration(seconds: 6));
-
       if (response.statusCode != 200) return null;
 
       final data = jsonDecode(response.body) as Map<String, dynamic>;
       final results = data['results'] as List<dynamic>?;
-
       if (results == null || results.isEmpty) return null;
 
       final place = results.first as Map<String, dynamic>;
 
-      // 写真のphoto_referenceを最大5枚取得
       final photos = (place['photos'] as List<dynamic>?)
               ?.map((p) => p['photo_reference'] as String)
               .take(5)
               .toList() ??
           [];
 
-      // 営業状況
       final openingHours =
           place['opening_hours'] as Map<String, dynamic>?;
       final isOpenNow = openingHours?['open_now'] as bool?;
 
-      // カテゴリ（typesの先頭を使用）
       final types =
           (place['types'] as List<dynamic>?)?.cast<String>() ?? [];
       final category = types.isNotEmpty ? types.first : null;
@@ -198,10 +297,18 @@ class _PlaceInfoSheetState extends State<_PlaceInfoSheet> {
             'この場所';
 
         final parts = <String>[];
-        if (address['state'] != null) parts.add(address['state'] as String);
-        if (address['city'] != null) parts.add(address['city'] as String);
-        if (address['suburb'] != null) parts.add(address['suburb'] as String);
-        if (address['road'] != null) parts.add(address['road'] as String);
+        if (address['state'] != null) {
+          parts.add(address['state'] as String);
+        }
+        if (address['city'] != null) {
+          parts.add(address['city'] as String);
+        }
+        if (address['suburb'] != null) {
+          parts.add(address['suburb'] as String);
+        }
+        if (address['road'] != null) {
+          parts.add(address['road'] as String);
+        }
         if (address['house_number'] != null) {
           parts.add(address['house_number'] as String);
         }
@@ -217,13 +324,12 @@ class _PlaceInfoSheetState extends State<_PlaceInfoSheet> {
     // 最終フォールバック：座標のみ表示
     return PlaceDetail(
       name: 'この場所',
-      address:
-          '緯度: ${widget.tappedPoint.latitude.toStringAsFixed(5)}, '
+      address: '緯度: ${widget.tappedPoint.latitude.toStringAsFixed(5)}, '
           '経度: ${widget.tappedPoint.longitude.toStringAsFixed(5)}',
     );
   }
 
-  /// Google Places API の写真URL を構築
+  /// Google Places API の写真 URL を構築
   String _buildPhotoUrl(String photoRef) {
     return 'https://maps.googleapis.com/maps/api/place/photo'
         '?maxwidth=400'
@@ -286,13 +392,13 @@ class _PlaceInfoSheetState extends State<_PlaceInfoSheet> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // 写真カルーセル（Google Places API で取得できた場合のみ表示）
+        // 写真カルーセル（取得できた場合のみ）
         if (detail.photoReferences.isNotEmpty) _buildPhotoCarousel(detail),
 
         Padding(
           padding: EdgeInsets.fromLTRB(
             20,
-            detail.photoReferences.isEmpty ? 16 : 16,
+            16,
             20,
             MediaQuery.of(context).viewInsets.bottom + 24,
           ),
@@ -302,8 +408,8 @@ class _PlaceInfoSheetState extends State<_PlaceInfoSheet> {
               // カテゴリバッジ
               if (detail.category != null) ...[
                 Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 10, vertical: 3),
                   decoration: BoxDecoration(
                     color: AppColors.primaryNavy.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(12),
@@ -320,7 +426,7 @@ class _PlaceInfoSheetState extends State<_PlaceInfoSheet> {
                 const SizedBox(height: 8),
               ],
 
-              // ── 場所名 + ルートボタン ────────────────────────────────
+              // ── 場所名 + ルートボタン ──
               Row(
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
@@ -334,14 +440,11 @@ class _PlaceInfoSheetState extends State<_PlaceInfoSheet> {
                       ),
                     ),
                   ),
-                  // ルートボタン（コールバックが設定されている場合のみ表示）
                   if (widget.onRouteRequested != null) ...[
                     const SizedBox(width: 8),
                     FilledButton.icon(
                       onPressed: () {
-                        // ① ボトムシートを閉じる
                         Navigator.pop(context);
-                        // ② ルート探索コールバックを呼ぶ
                         widget.onRouteRequested!(widget.tappedPoint);
                       },
                       style: FilledButton.styleFrom(
@@ -376,11 +479,10 @@ class _PlaceInfoSheetState extends State<_PlaceInfoSheet> {
 
               const SizedBox(height: 8),
 
-              // 評価 ＋ 営業状況
+              // 評価 ＋ 営業中バッジ
               if (detail.rating != null || detail.isOpenNow != null) ...[
                 Row(
                   children: [
-                    // 評価（星 + 数値 + レビュー数）
                     if (detail.rating != null) ...[
                       Icon(
                         Icons.star_rounded,
@@ -407,11 +509,8 @@ class _PlaceInfoSheetState extends State<_PlaceInfoSheet> {
                         ),
                       ],
                     ],
-
                     if (detail.rating != null && detail.isOpenNow != null)
                       const SizedBox(width: 12),
-
-                    // 営業中 / 営業時間外バッジ
                     if (detail.isOpenNow != null) ...[
                       Container(
                         padding: const EdgeInsets.symmetric(
@@ -471,10 +570,11 @@ class _PlaceInfoSheetState extends State<_PlaceInfoSheet> {
                 const SizedBox(height: 6),
               ],
 
-              // 座標（小さめに表示）
+              // 座標（小さめ）
               Row(
                 children: [
-                  const Icon(Icons.my_location, size: 13, color: Colors.grey),
+                  const Icon(Icons.my_location,
+                      size: 13, color: Colors.grey),
                   const SizedBox(width: 4),
                   Text(
                     '${widget.tappedPoint.latitude.toStringAsFixed(5)}, '
@@ -487,6 +587,9 @@ class _PlaceInfoSheetState extends State<_PlaceInfoSheet> {
                   ),
                 ],
               ),
+
+              // ── 詳細情報セクション（電話・ウェブ・営業時間） ──
+              _buildAdditionalInfoSection(detail),
 
               const SizedBox(height: 20),
               const Divider(height: 1),
@@ -506,6 +609,97 @@ class _PlaceInfoSheetState extends State<_PlaceInfoSheet> {
             ],
           ),
         ),
+      ],
+    );
+  }
+
+  /// 詳細情報セクション：電話番号・ウェブサイト・営業時間アコーディオン
+  Widget _buildAdditionalInfoSection(PlaceDetail detail) {
+    final hasAdditional = detail.phoneNumber != null ||
+        detail.website != null ||
+        (detail.weekdayText != null && detail.weekdayText!.isNotEmpty);
+
+    if (!hasAdditional) return const SizedBox.shrink();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Padding(
+          padding: EdgeInsets.symmetric(vertical: 12),
+          child: Divider(height: 1),
+        ),
+
+        // 電話番号
+        if (detail.phoneNumber != null) ...[
+          Row(
+            children: [
+              const Icon(Icons.phone_outlined,
+                  size: 16, color: Colors.grey),
+              const SizedBox(width: 8),
+              Text(
+                detail.phoneNumber!,
+                style: const TextStyle(
+                    fontSize: 13, color: Colors.black87),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+        ],
+
+        // 公式ウェブサイト（リンク表示のみ。url_launcher 非依存）
+        if (detail.website != null) ...[
+          Row(
+            children: [
+              const Icon(Icons.language_outlined,
+                  size: 16, color: Colors.grey),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  detail.website!,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    color: Colors.blue,
+                    decoration: TextDecoration.underline,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+        ],
+
+        // 営業時間（アコーディオン形式）
+        if (detail.weekdayText != null &&
+            detail.weekdayText!.isNotEmpty) ...[
+          Theme(
+            // ExpansionTile のデフォルト仕切り線を非表示にして視覚ノイズを排除
+            data: Theme.of(context)
+                .copyWith(dividerColor: Colors.transparent),
+            child: ExpansionTile(
+              leading: const Icon(Icons.access_time_outlined,
+                  size: 16, color: Colors.grey),
+              title: const Text(
+                '営業時間を確認',
+                style: TextStyle(fontSize: 13, color: Colors.black87),
+              ),
+              tilePadding: EdgeInsets.zero,
+              childrenPadding:
+                  const EdgeInsets.only(left: 24, bottom: 8),
+              expandedAlignment: Alignment.topLeft,
+              children: detail.weekdayText!.map((text) {
+                return Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 2),
+                  child: Text(
+                    text,
+                    style: TextStyle(
+                        fontSize: 12, color: Colors.grey.shade700),
+                  ),
+                );
+              }).toList(),
+            ),
+          ),
+        ],
       ],
     );
   }
