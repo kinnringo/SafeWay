@@ -332,16 +332,12 @@ def search_route(request: RouteRequest, db: Session = Depends(get_db)):
         # 失敗時は roads_snap.py 内でフォールバックし、元の OSM ルートを返す
         safe_route = snap_route_to_roads(safe_route)
 
-        # 5. 最短ルートを探索: Directions API（失敗時は OSM/pgRouting にフォールバック）
-        shortest_route = _directions_shortest_route(
-            start_lat=request.start_lat,
-            start_lng=request.start_lng,
-            end_lat=request.end_lat,
-            end_lng=request.end_lng,
-        )
-        if shortest_route is None:
-            logger.info("Directions API が失敗したため OSM pgRouting にフォールバックします。")
-            shortest_route = _query_route_info(db, start_node_id, end_node_id, "length")
+        # 5. 最短ルートを探索: Directions API の利用を停止し、OSM/pgRouting (コスト: length) で計算する
+        #    これにより最短ルートにも安全スコア (dynamic_safety_score) と色分けが正確に反映される。
+        shortest_route = _query_route_info(db, start_node_id, end_node_id, "length")
+        
+        # 5b. 最短ルートも Google Maps の道路形状に合わせてスナップ
+        shortest_route = snap_route_to_roads(shortest_route)
 
         # 6. 安全ルート沿いのエリア型ハザードを検索
         radius = request.hazard_radius_m if request.hazard_radius_m is not None else 1000.0
