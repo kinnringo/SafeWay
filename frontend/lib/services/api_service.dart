@@ -247,6 +247,40 @@ class ApiService {
 
     return null;
   }
+
+  /// 詳細施設情報取得: GET /api/places/details
+  /// 
+  /// [placeId] に対応する施設の詳細情報（電話番号、営業時間など）を取得します。
+  Future<Map<String, dynamic>?> getPlaceDetails(String placeId) async {
+    final uri = Uri.parse('$baseUrl/places/details').replace(queryParameters: {
+      'place_id': placeId,
+    });
+
+    try {
+      final response = await http.get(uri).timeout(const Duration(seconds: 5));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final status = data['status'] as String? ?? '';
+        final errorMessage = data['error_message'] as String?;
+
+        if (status != 'OK' && status != 'ZERO_RESULTS') {
+          debugPrint('[ApiService] Place Details API error: status=$status, message=$errorMessage');
+          return null;
+        }
+
+        final result = data['result'] as Map<String, dynamic>?;
+        return result;
+      } else {
+        debugPrint('[ApiService] getPlaceDetails HTTP error: ${response.statusCode} ${response.reasonPhrase}');
+      }
+    } catch (e) {
+      debugPrint('[ApiService] getPlaceDetails Exception: $e');
+    }
+
+    return null;
+  }
+
   /// 共通: リクエスト送信とレスポンスのパース
 
   Future<AnalyzeResponse> _sendRequest(http.MultipartRequest request) async {

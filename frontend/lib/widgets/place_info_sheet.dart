@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:http/http.dart' as http;
 import '../core/theme.dart';
-import '../core/api_config.dart';
+import '../services/api_service.dart';
 import 'package:pointer_interceptor/pointer_interceptor.dart';
 
 /// 場所情報のデータモデル
@@ -140,36 +140,12 @@ class _PlaceInfoSheetState extends State<_PlaceInfoSheet> {
     }
   }
 
-  /// Google Place Details API からピンポイントで詳細情報を取得
+  /// バックエンドプロキシ経由で詳細情報を取得
   ///
   /// 電話番号・ウェブサイト・営業時間の曜日テキストを含む詳細を返す。
   Future<PlaceDetail?> _fetchFromPlaceDetailsApi(String placeId) async {
-    const key = ApiConfig.googleMapsApiKey;
-    if (key == 'YOUR_GOOGLE_MAPS_API_KEY_HERE' || key.isEmpty) {
-      return null;
-    }
-
     try {
-      final uri = Uri.https(
-        'maps.googleapis.com',
-        '/maps/api/place/details/json',
-        {
-          'place_id': placeId,
-          // 必要なフィールドのみ指定してリクエストコスト最小化
-          'fields':
-              'name,vicinity,types,rating,user_ratings_total,'
-              'opening_hours,formatted_phone_number,website,photos',
-          'language': 'ja',
-          'key': key,
-        },
-      );
-
-      final response =
-          await http.get(uri).timeout(const Duration(seconds: 6));
-      if (response.statusCode != 200) return null;
-
-      final data = jsonDecode(response.body) as Map<String, dynamic>;
-      final result = data['result'] as Map<String, dynamic>?;
+      final result = await ApiService().getPlaceDetails(placeId);
       if (result == null) return null;
 
       final photos = (result['photos'] as List<dynamic>?)
@@ -203,68 +179,34 @@ class _PlaceInfoSheetState extends State<_PlaceInfoSheet> {
         website: result['website'] as String?,
         weekdayText: weekdayText,
       );
-    } catch (_) {
+    } catch (e) {
+      debugPrint('Place Details API error: $e');
       return null;
     }
   }
 
-  /// Google Places API Nearby Search で周辺施設を取得
+  /// バックエンドプロキシ経由で周辺施設を取得 (フォールバック)
   Future<PlaceDetail?> _fetchFromPlacesApi() async {
-    const key = ApiConfig.googleMapsApiKey;
-    if (key == 'YOUR_GOOGLE_MAPS_API_KEY_HERE' || key.isEmpty) {
-      return null;
-    }
-
     try {
       final lat = widget.tappedPoint.latitude;
       final lng = widget.tappedPoint.longitude;
 
-      final uri = Uri.https(
-        'maps.googleapis.com',
-        '/maps/api/place/nearbysearch/json',
-        {
-          'location': '$lat,$lng',
-          'radius': '50',
-          'language': 'ja',
-          'key': key,
-        },
+      final nearbyResult = await ApiService().getNearbyPoi(
+        lat: lat,
+        lng: lng,
+        radius: 50.0,
       );
+      
+      if (nearbyResult == null) return null;
 
-      final response =
-          await http.get(uri).timeout(const Duration(seconds: 6));
-      if (response.statusCode != 200) return null;
-
-      final data = jsonDecode(response.body) as Map<String, dynamic>;
-      final results = data['results'] as List<dynamic>?;
-      if (results == null || results.isEmpty) return null;
-
-      final place = results.first as Map<String, dynamic>;
-
-      final photos = (place['photos'] as List<dynamic>?)
-              ?.map((p) => p['photo_reference'] as String)
-              .take(5)
-              .toList() ??
-          [];
-
-      final openingHours =
-          place['opening_hours'] as Map<String, dynamic>?;
-      final isOpenNow = openingHours?['open_now'] as bool?;
-
-      final types =
-          (place['types'] as List<dynamic>?)?.cast<String>() ?? [];
-      final category = types.isNotEmpty ? types.first : null;
-
-      return PlaceDetail(
-        name: place['name'] as String? ?? 'この場所',
-        address: place['vicinity'] as String? ?? '',
-        category: category,
-        rating: (place['rating'] as num?)?.toDouble(),
-        userRatingsTotal: place['user_ratings_total'] as int?,
-        isOpenNow: isOpenNow,
-        photoReferences: photos,
-        fromPlacesApi: true,
-      );
-    } catch (_) {
+      final placeId = nearbyResult['placeId'] as String?;
+      if (placeId != null) {
+        // Nearby Searchで見つかった一番近い場所の placeId を使って詳細を取得
+        return _fetchFromPlaceDetailsApi(placeId);
+      }
+      return null;
+    } catch (e) {
+      debugPrint('Nearby API error: $e');
       return null;
     }
   }
@@ -329,12 +271,9 @@ class _PlaceInfoSheetState extends State<_PlaceInfoSheet> {
     );
   }
 
-  /// Google Places API の写真 URL を構築
+  /// バックエンドプロキシ経由で写真 URL を構築
   String _buildPhotoUrl(String photoRef) {
-    return 'https://maps.googleapis.com/maps/api/place/photo'
-        '?maxwidth=400'
-        '&photo_reference=$photoRef'
-        '&key=${ApiConfig.googleMapsApiKey}';
+    return '${ApiService.baseUrl}/places/photo?photo_reference=$photoRef';
   }
 
   @override
