@@ -481,3 +481,42 @@ Google Places API (Nearby Search) の中継（プロキシ）エンドポイン�
 ### レスポンス
 
 Google Places API のレスポンス形式に準拠する JSON オブジェクトが返却される。
+
+---
+
+## GET /api/places/details
+
+Google Places API (Place Details) の中継（プロキシ）エンドポイント。
+指定した施設の詳細情報（レビューや写真情報など）を取得する。
+
+### 実装状況: ✅ 実装済み
+
+### リクエスト形式: URLクエリパラメータ
+
+| パラメータ | 型 | 必須 | 説明 |
+|---|---|---|---|
+| `place_id` | string | ✅ | 施設を一意に識別する Google Place ID |
+
+### レスポンス
+
+Google Places API のレスポンス形式に準拠する JSON オブジェクトが返却される。
+
+---
+
+## GET /api/places/photo
+
+Google Places API (Place Photo) の中継（プロキシ）エンドポイント。
+施設に紐づく画像（写真）を取得する。
+
+### 実装状況: ✅ 実装済み
+
+### リクエスト形式: URLクエリパラメータ
+
+| パラメータ | 型 | 必須 | 説明 |
+|---|---|---|---|
+| `photo_reference` | string | ✅ | 画像のリファレンス文字列（Details API等から取得したもの） |
+| `maxwidth` | int | ❌ | 画像の最大幅。デフォルトは 400 |
+
+### レスポンス
+
+- **302 Found**: 実際の画像データ（Googleのサーバー）へリダイレクトされる。フロントエンドでは `<img>` タグの `src` 属性にこのAPIのエンドポイントURLをそのまま指定するだけで、自動的に画像が表示される。
