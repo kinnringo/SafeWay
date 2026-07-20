@@ -453,3 +453,31 @@ Google Places API (Text Search) の中継（プロキシ）エンドポイント
 ### レスポンス
 
 Google Places API のレスポンス形式に準拠する JSON オブジェクトが返却される。
+
+---
+
+## GET /api/places/nearby
+
+Google Places API (Nearby Search) の中継（プロキシ）エンドポイント。
+フロントエンド環境における CORS 制限の回避、および API キー隠蔽のために使用する。
+
+### 実装状況: ✅ 実装済み
+
+### リクエスト形式: URLクエリパラメータ
+
+| パラメータ | 型 | 必須 | 説明 |
+|---|---|---|---|
+| `lat` | float | ✅ | 検索中心の緯度 |
+| `lng` | float | ✅ | 検索中心の経度 |
+| `radius` | float | ❌ | 検索範囲メートル（デフォルト: 30.0） |
+
+### 内部処理フロー
+
+1. フロントエンドから受け取った `lat`, `lng`, `radius` パラメータを受け取る
+2. バックエンド側で環境変数の `GOOGLE_MAPS_API_KEY` と `language=ja` を付加する
+3. `https://maps.googleapis.com/maps/api/place/nearbysearch/json` にリクエストを送信する
+4. Google API から返ってきた JSON レスポンスをそのままフロントエンドに返却する
+
+### レスポンス
+
+Google Places API のレスポンス形式に準拠する JSON オブジェクトが返却される。
