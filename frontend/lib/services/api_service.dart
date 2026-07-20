@@ -14,6 +14,18 @@ class ApiService {
   // iPhone実機でテストする場合は、MacのIPアドレス（例: 192.168.1.5等）に変更してください！
   static const String baseUrl = 'http://127.0.0.1:8000/api';
 
+  /// 認証ヘッダーを含む Map を生成するユーティリティ
+  ///
+  /// [token] が null の場合は通常の JSON ヘッダーのみを返す。
+  /// 認証が必要なエンドポイントを呼び出す際に使用する。
+  ///   例: http.get(uri, headers: ApiService.authorizedHeaders(token))
+  static Map<String, String> authorizedHeaders(String? token) {
+    return {
+      'Content-Type': 'application/json',
+      if (token != null) 'Authorization': 'Bearer $token',
+    };
+  }
+
   /// モードA: ライブカメラ撮影モード
   ///
   /// 仕様書 Section 4 モードA に準拠。
