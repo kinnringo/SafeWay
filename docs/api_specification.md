@@ -1,8 +1,105 @@
 # SafeWay Backend API 仕様書
 
-最終更新: 2026-07-01
+最終更新: 2026-07-20
 
 ベースURL: `http://localhost:8000`
+
+---
+
+## 認証
+
+認証が必要なエンドポイントは `Authorization: Bearer <token>` ヘッダーを付与すること。
+トークンは `/api/auth/login` で取得する。
+
+---
+
+## POST /api/auth/register
+
+新規ユーザーを登録する。
+
+### リクエストボディ
+
+| フィールド | 型 | 必須 | 説明 |
+|---|---|---|---|
+| `username` | string | ○ | ユーザー名（3〜50文字） |
+| `password` | string | ○ | パスワード（6文字以上） |
+
+### レスポンス
+
+**201 Created**
+
+| フィールド | 型 | 説明 |
+|---|---|---|
+| `id` | int | ユーザー ID |
+| `username` | string | ユーザー名 |
+| `coins` | int | 保有コイン数（初期値: 0） |
+| `created_at` | string | 登録日時（ISO 8601） |
+
+**409 Conflict**: ユーザー名が既に使用されている場合
+
+### レスポンス例
+
+```json
+{
+  "id": 1,
+  "username": "taro",
+  "coins": 0,
+  "created_at": "2026-07-20T12:00:00"
+}
+```
+
+---
+
+## POST /api/auth/login
+
+ユーザー認証を行い、JWT アクセストークンを返す。
+
+### リクエストボディ
+
+| フィールド | 型 | 必須 | 説明 |
+|---|---|---|---|
+| `username` | string | ○ | ユーザー名 |
+| `password` | string | ○ | パスワード |
+
+### レスポンス
+
+**200 OK**
+
+| フィールド | 型 | 説明 |
+|---|---|---|
+| `access_token` | string | JWT アクセストークン（有効期限: 60分） |
+| `token_type` | string | 常に `"bearer"` |
+
+**401 Unauthorized**: 認証情報が誤っている場合
+
+### レスポンス例
+
+```json
+{
+  "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "token_type": "bearer"
+}
+```
+
+---
+
+## GET /api/auth/me
+
+**認証必須**
+
+ログイン中のユーザー情報を返す。
+
+### リクエストヘッダー
+
+| ヘッダー | 値 |
+|---|---|
+| `Authorization` | `Bearer <access_token>` |
+
+### レスポンス
+
+**200 OK**: `UserResponse`（`/api/auth/register` と同形式）
+
+**401 Unauthorized**: トークンが無効・期限切れの場合
 
 ---
 

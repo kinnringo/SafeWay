@@ -19,4 +19,9 @@ class Settings:
     # Google Maps Platform API キー（Roads API Snap to Roads 用）
     GOOGLE_MAPS_API_KEY: str = os.getenv("GOOGLE_MAPS_API_KEY", "")
 
+    # JWT 認証設定
+    JWT_SECRET_KEY: str = os.getenv("JWT_SECRET_KEY", "change-me-in-production")
+    JWT_ALGORITHM: str = "HS256"
+    JWT_EXPIRE_MINUTES: int = int(os.getenv("JWT_EXPIRE_MINUTES", "60"))
+
 settings = Settings()

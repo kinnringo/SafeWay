@@ -9,6 +9,36 @@ from pydantic import BaseModel, Field
 
 
 # ---------------------------------------------------------------------------
+# 認証
+# ---------------------------------------------------------------------------
+
+
+class UserCreate(BaseModel):
+    """ユーザー登録リクエスト"""
+
+    username: str = Field(..., min_length=3, max_length=50, description="ユーザー名（3〜50文字）")
+    password: str = Field(..., min_length=6, description="パスワード（6文字以上）")
+
+
+class UserResponse(BaseModel):
+    """ユーザー情報レスポンス"""
+
+    id: int = Field(..., description="ユーザー ID")
+    username: str = Field(..., description="ユーザー名")
+    coins: int = Field(..., description="保有コイン数")
+    created_at: datetime = Field(..., description="登録日時")
+
+    model_config = {"from_attributes": True}
+
+
+class TokenResponse(BaseModel):
+    """ログイン成功時のレスポンス"""
+
+    access_token: str = Field(..., description="JWT アクセストークン")
+    token_type: str = Field("bearer", description="トークン種別")
+
+
+# ---------------------------------------------------------------------------
 # ルート検索
 # ---------------------------------------------------------------------------
 
