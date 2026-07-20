@@ -1,12 +1,9 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
-import 'package:http/http.dart' as http;
 import 'package:pointer_interceptor/pointer_interceptor.dart';
 import '../core/theme.dart';
-import '../core/api_config.dart';
 import '../services/api_service.dart';
 
 /// 場所・住所の検索結果
@@ -240,61 +237,27 @@ class _MapSearchBarState extends State<MapSearchBar> {
 
     _debounceTimer = Timer(const Duration(milliseconds: 300), () async {
       if (!mounted) return;
-      
-      const apiKey = ApiConfig.googleMapsApiKey;
-      if (apiKey.isEmpty || apiKey == 'YOUR_GOOGLE_MAPS_API_KEY_HERE') return;
 
       setState(() => _isSearching = true);
 
       try {
-        // 1. バックエンドAPIのクエリパラメータを構築
-        final Map<String, String> queryParams = {'query': query};
-
+        double? lat;
+        double? lng;
         if (widget.currentPosition != null) {
-          final cur = widget.currentPosition!;
-          queryParams['location'] = '${cur.latitude},${cur.longitude}';
-          queryParams['radius'] = '10000'; // 10km圏内を優先
+          lat = widget.currentPosition!.latitude;
+          lng = widget.currentPosition!.longitude;
         }
 
-        // 2. 自社バックエンド（例: http://127.0.0.1:8000/api/places/search）へリクエスト
-        // Uri.parse を用いて baseUrl に安全にパスとクエリを結合します
-        final baseUri = Uri.parse(ApiService.baseUrl);
-        final uri = Uri(
-          scheme: baseUri.scheme,
-          host: baseUri.host,
-          port: baseUri.port,
-          path: '${baseUri.path}/places/search'.replaceAll('//', '/'),
-          queryParameters: queryParams,
+        final results = await ApiService().searchPlaces(
+          query: query,
+          lat: lat,
+          lng: lng,
+          radius: 10000,
         );
-
-        print('[SearchBar] Requesting Backend Proxy: $uri');
-        final response = await http.get(uri);
 
         if (!mounted) return;
 
-        if (response.statusCode == 200) {
-          final data = jsonDecode(response.body);
-          final status = data['status'] as String? ?? '';
-          final errorMessage = data['error_message'] as String?;
-
-          // Google Places API 独自のステータスチェック
-          if (status != 'OK' && status != 'ZERO_RESULTS') {
-            print('[SearchBar] Places API error: status=$status, message=$errorMessage');
-            setState(() => _isSearching = false);
-            if (mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('検索APIエラー: $status ${errorMessage ?? ""}'),
-                  backgroundColor: Colors.orange.shade700,
-                ),
-              );
-            }
-            return;
-          }
-
-          final results = data['results'] as List<dynamic>? ?? [];
-          print('[SearchBar] Found ${results.length} results (status=$status)');
-
+        if (results != null) {
           // JSON パースと距離計算
           List<PlaceResult> newResults = results
               .map((e) => PlaceResult.fromGooglePlacesJson(e as Map<String, dynamic>))
@@ -316,35 +279,32 @@ class _MapSearchBarState extends State<MapSearchBar> {
 
           // 検索成功時に結果をキャッシュに保存
           _lastResults = newResults;
-
-          setState(() => _isSearching = false);
           _showOverlay(newResults);
         } else {
-          // HTTP 4xx, 5xx のエラーハンドリング
-          print('[SearchBar] HTTP error: ${response.statusCode} ${response.reasonPhrase}');
-          print('[SearchBar] Response body: ${response.body}');
-          setState(() => _isSearching = false);
+          // null が返ってきた場合はエラー
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
-                content: Text('検索サーバーエラー (HTTP ${response.statusCode})'),
+                content: Text('検索中にエラーが発生しました'),
                 backgroundColor: Colors.red.shade700,
               ),
             );
           }
         }
       } catch (e, stackTrace) {
-        // 通信エラー（CORS, タイムアウト, NW遮断など）のハンドリング
-        print('[SearchBar] Exception: $e');
-        print('[SearchBar] StackTrace: $stackTrace');
+        debugPrint('[SearchBar] Exception: $e');
+        debugPrint('[SearchBar] StackTrace: $stackTrace');
         if (mounted) {
-          setState(() => _isSearching = false);
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('検索中に通信エラーが発生しました'),
+              content: Text('予期せぬエラーが発生しました'),
               backgroundColor: Colors.red.shade700,
             ),
           );
+        }
+      } finally {
+        if (mounted) {
+          setState(() => _isSearching = false);
         }
       }
     });

@@ -160,6 +160,93 @@ class ApiService {
     }
   }
 
+  /// 周辺施設検索: GET /api/places/nearby
+  /// 
+  /// 指定された座標から [radius] m 以内の施設を検索し、
+  /// 最も近い施設の座標と placeId を Map 形式で返します。
+  Future<Map<String, dynamic>?> getNearbyPoi({
+    required double lat,
+    required double lng,
+    double radius = 30.0,
+  }) async {
+    final uri = Uri.parse('$baseUrl/places/nearby').replace(queryParameters: {
+      'lat': lat.toString(),
+      'lng': lng.toString(),
+      'radius': radius.toString(),
+    });
+
+    try {
+      final response = await http.get(uri).timeout(const Duration(seconds: 4));
+      
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final results = data['results'] as List<dynamic>?;
+        
+        if (results != null && results.isNotEmpty) {
+          // 一番近い施設を返す
+          final place = results.first as Map<String, dynamic>;
+          final geomLat = place['geometry']['location']['lat'] as num;
+          final geomLng = place['geometry']['location']['lng'] as num;
+          
+          return {
+            'lat': geomLat.toDouble(),
+            'lng': geomLng.toDouble(),
+            'placeId': place['place_id'] as String,
+          };
+        }
+      }
+    } catch (e) {
+      // ネットワークエラー等の場合は null を返す
+      debugPrint('Nearby API Error: $e');
+    }
+    
+    return null;
+  }
+
+  /// 検索サジェスト用: GET /api/places/search
+  ///
+  /// 入力された [query] を元に、候補の施設リストを取得します。
+  Future<List<dynamic>?> searchPlaces({
+    required String query,
+    double? lat,
+    double? lng,
+    double? radius,
+  }) async {
+    final queryParams = <String, String>{'query': query};
+
+    if (lat != null && lng != null) {
+      queryParams['location'] = '$lat,$lng';
+      if (radius != null) {
+        queryParams['radius'] = radius.toInt().toString();
+      }
+    }
+
+    final uri = Uri.parse('$baseUrl/places/search').replace(queryParameters: queryParams);
+
+    try {
+      final response = await http.get(uri).timeout(const Duration(seconds: 5));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final status = data['status'] as String? ?? '';
+        final errorMessage = data['error_message'] as String?;
+
+        if (status != 'OK' && status != 'ZERO_RESULTS') {
+          debugPrint('[ApiService] Places API error: status=$status, message=$errorMessage');
+          return null; // または例外を投げる
+        }
+
+        final results = data['results'] as List<dynamic>? ?? [];
+        return results;
+      } else {
+        debugPrint('[ApiService] searchPlaces HTTP error: ${response.statusCode} ${response.reasonPhrase}');
+      }
+    } catch (e) {
+      debugPrint('[ApiService] searchPlaces Exception: $e');
+    }
+
+    return null;
+  }
   /// 共通: リクエスト送信とレスポンスのパース
 
   Future<AnalyzeResponse> _sendRequest(http.MultipartRequest request) async {
