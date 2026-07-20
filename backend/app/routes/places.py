@@ -1,7 +1,5 @@
 import logging
-import urllib.parse
-import urllib.request
-import json
+import httpx
 from fastapi import APIRouter, HTTPException, Query
 from app.core.config import settings
 
@@ -11,8 +9,9 @@ router = APIRouter()
 _PLACES_API_URL = "https://maps.googleapis.com/maps/api/place/textsearch/json"
 _NEARBY_API_URL = "https://maps.googleapis.com/maps/api/place/nearbysearch/json"
 
+
 @router.get("/places/search")
-def search_places(
+async def search_places(
     query: str = Query(..., description="検索キーワード"),
     location: str | None = Query(None, description="現在地 (lat,lng)"),
     radius: str | None = Query(None, description="検索範囲 (メートル)")
@@ -30,29 +29,30 @@ def search_places(
         "language": "ja",
         "region": "jp",
     }
-    
+
     if location:
         params["location"] = location
     if radius:
         params["radius"] = radius
-        
-    url = f"{_PLACES_API_URL}?{urllib.parse.urlencode(params)}"
-    
+
     try:
-        req = urllib.request.Request(url)
-        with urllib.request.urlopen(req, timeout=10) as response:
-            data = json.loads(response.read().decode('utf-8'))
-            return data
-    except urllib.error.URLError as e:
-        logger.error(f"Google Places API request failed: {e}")
-        raise HTTPException(status_code=502, detail="Failed to connect to Google Places API.")
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(_PLACES_API_URL, params=params)
+            response.raise_for_status()
+            return response.json()
+    except httpx.TimeoutException:
+        logger.error("Google Places API request timed out")
+        raise HTTPException(status_code=504, detail="Google Places API request timed out.")
+    except httpx.HTTPStatusError as e:
+        logger.error(f"Google Places API returned error status: {e.response.status_code}")
+        raise HTTPException(status_code=502, detail="Google Places API returned an error.")
     except Exception as e:
         logger.error(f"Unexpected error in places search: {e}")
         raise HTTPException(status_code=500, detail="Internal server error.")
 
 
 @router.get("/places/nearby")
-def nearby_places(
+async def nearby_places(
     lat: float = Query(..., description="緯度"),
     lng: float = Query(..., description="経度"),
     radius: float = Query(30.0, description="検索半径（メートル）")
@@ -70,18 +70,18 @@ def nearby_places(
         "key": settings.GOOGLE_MAPS_API_KEY,
         "language": "ja",
     }
-    
-    url = f"{_NEARBY_API_URL}?{urllib.parse.urlencode(params)}"
-    
+
     try:
-        req = urllib.request.Request(url)
-        with urllib.request.urlopen(req, timeout=10) as response:
-            data = json.loads(response.read().decode('utf-8'))
-            return data
-    except urllib.error.URLError as e:
-        logger.error(f"Google Places API nearby search request failed: {e}")
-        raise HTTPException(status_code=502, detail="Failed to connect to Google Places API.")
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(_NEARBY_API_URL, params=params)
+            response.raise_for_status()
+            return response.json()
+    except httpx.TimeoutException:
+        logger.error("Google Places API nearby search request timed out")
+        raise HTTPException(status_code=504, detail="Google Places API request timed out.")
+    except httpx.HTTPStatusError as e:
+        logger.error(f"Google Places API nearby search returned error status: {e.response.status_code}")
+        raise HTTPException(status_code=502, detail="Google Places API returned an error.")
     except Exception as e:
         logger.error(f"Unexpected error in nearby search: {e}")
         raise HTTPException(status_code=500, detail="Internal server error.")
-
