@@ -1,15 +1,12 @@
 import 'dart:async';
-import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
-import 'package:http/http.dart' as http;
 import 'package:pointer_interceptor/pointer_interceptor.dart';
 import '../providers/image_provider.dart';
 import '../providers/hazard_provider.dart';
 import '../core/theme.dart';
-import '../core/api_config.dart';
 import '../widgets/image_preview_card.dart';
 import '../widgets/action_buttons.dart';
 import '../widgets/search_bar_widget.dart';
@@ -477,40 +474,21 @@ class _MapScreenState extends ConsumerState<MapScreen> {
 
   /// タップ座標周辺の POI を検索するヘルパー
   Future<_DetectedPoi?> _findNearbyPoi(LatLng point) async {
-    const key = ApiConfig.googleMapsApiKey;
-    if (key == 'YOUR_GOOGLE_MAPS_API_KEY_HERE' || key.isEmpty) return null;
+    final apiService = ref.read(apiServiceProvider);
+    final result = await apiService.getNearbyPoi(
+      lat: point.latitude,
+      lng: point.longitude,
+      radius: 30.0, // タップ地点から30m以内を検索
+    );
 
-    try {
-      final uri = Uri.https(
-        'maps.googleapis.com',
-        '/maps/api/place/nearbysearch/json',
-        {
-          'location': '${point.latitude},${point.longitude}',
-          'radius': '15', // タップ地点から15m以内の施設を検索
-          'language': 'ja',
-          'key': key,
-        },
-      );
-      final response = await http.get(uri).timeout(const Duration(seconds: 4));
-      if (response.statusCode != 200) return null;
-
-      final data = jsonDecode(response.body);
-      final results = data['results'] as List<dynamic>?;
-      if (results == null || results.isEmpty) return null;
-
-      // 一番近い施設をタップされた POI とみなす
-      final place = results.first as Map<String, dynamic>;
-      final lat = place['geometry']['location']['lat'] as num;
-      final lng = place['geometry']['location']['lng'] as num;
-      final placeId = place['place_id'] as String;
-
+    if (result != null) {
       return _DetectedPoi(
-        latLng: LatLng(lat.toDouble(), lng.toDouble()), // 店舗の正確な座標
-        placeId: placeId,
+        latLng: LatLng(result['lat'] as double, result['lng'] as double), // 店舗の正確な座標
+        placeId: result['placeId'] as String,
       );
-    } catch (_) {
-      return null;
     }
+    
+    return null;
   }
 
   /// 2. POI（店舗・スポットアイコン）タップ
@@ -524,9 +502,16 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   /// `onPoiTap` が現在の Google Maps SDK バージョンで公開されていないため、
   /// 長押しのみで山所情報の取得・表示を実現する。
   /// Web 環境でも確実に動作する。
-  void _onLongPress(LatLng point) {
+  Future<void> _onLongPress(LatLng point) async {
     if (_isSuggestionsVisible || _isNavigating) return;
-    _showSpotDetails(point: point);
+    
+    // 長押し地点周辺の POI を検索し、あれば施設名情報を引き継ぐ
+    final poi = await _findNearbyPoi(point);
+    if (poi != null) {
+      _showSpotDetails(point: poi.latLng, placeId: poi.placeId);
+    } else {
+      _showSpotDetails(point: point);
+    }
   }
 
   // ─────────────────────────────────────────────────────────────────────
