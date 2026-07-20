@@ -69,6 +69,9 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   /// ボトムシートが表示されていない状態で誤って地図画面自体がポップしないよう防衛する。
   bool _isPlaceSheetOpen = false;
 
+  /// 現在のカメラズームレベル（14.5以上で wildlife マーカーを非表示にする）
+  double _currentZoom = 14.0;
+
   static const LatLng _defaultCenter = LatLng(36.3895, 139.0634); // 前橋駅
 
   // ─────────────────────────────────────────────────────────────────────
@@ -327,7 +330,15 @@ class _MapScreenState extends ConsumerState<MapScreen> {
         maxLng: bounds.northeast.longitude,
       );
 
-      final newHazardMarkers = hazards.map(_createHazardMarker).toSet();
+      // ズームが 14.5 以上の場合、野生動物（wildlife）マーカーを除外
+      final filteredHazards = hazards.where((hazard) {
+        final isWildlife = hazard.eventType == 'wildlife' ||
+            hazard.label == 'bear' ||
+            hazard.label == 'wildlife';
+        return !(_currentZoom >= 14.5 && isWildlife);
+      }).toList();
+
+      final newHazardMarkers = filteredHazards.map(_createHazardMarker).toSet();
       if (mounted) {
         setState(() {
           _hazardMarkers = newHazardMarkers;
@@ -1008,6 +1019,28 @@ class _MapScreenState extends ConsumerState<MapScreen> {
               // POI情報は長押し（onLongPress）経由で全て対応する。
               onLongPress: _onLongPress,
               onCameraIdle: _fetchHazards,
+              onCameraMove: (CameraPosition position) {
+                // ズームが 14.5 を境に変化した場合のみ setState して再描画
+                final newZoom = position.zoom;
+                final crossedThreshold =
+                    (_currentZoom < 14.5) != (newZoom < 14.5);
+                _currentZoom = newZoom;
+                if (crossedThreshold && mounted) {
+                  setState(() {
+                    // _hazardMarkers はそのまま保持し、
+                    // build() で _currentZoom に基づく再フィルタリングを発動させる
+                    _hazardMarkers = _hazardMarkers
+                        .where((marker) {
+                          // wildlife マーカーは ID が 'hazard_' プレフィックスで判定済み
+                          // 再フィルタリングは次の _fetchHazards() に委ねる
+                          return true;
+                        })
+                        .toSet();
+                  });
+                  // ズームが閾値を超えた瞬間に即再取得してフィルタリングを適用
+                  _fetchHazards();
+                }
+              },
               markers: {..._markers, ..._hazardMarkers},
               polylines: _polylines,
               myLocationEnabled: true,
