@@ -111,14 +111,15 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       );
     }
 
-    // 2. 最短距離ルート: allPoints を使い単色（青）の1本線で描画
-    final shortestPoints = response.shortestRoute.allPoints;
-    if (shortestPoints.length >= 2) {
+    // 2. 最短距離ルート: 区間ごとにループして safety_score で色分け
+    for (var i = 0; i < response.shortestRoute.features.length; i++) {
+      final feature = response.shortestRoute.features[i];
+      if (feature.points.length < 2) continue;
       newPolylines.add(
         Polyline(
-          polylineId: const PolylineId('shortest_route'),
-          points: shortestPoints,
-          color: const Color(0xFF3498DB), // スカイブルー
+          polylineId: PolylineId('shortest_route_segment_$i'),
+          points: feature.points,
+          color: _safetyScoreToColor(feature.safetyScore),
           width: 4,
           zIndex: 5,
           startCap: Cap.roundCap,
