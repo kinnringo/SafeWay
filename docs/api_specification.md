@@ -469,12 +469,11 @@ Google Places API (Nearby Search) の中継（プロキシ）エンドポイン�
 |---|---|---|---|
 | `lat` | float | ✅ | 検索中心の緯度 |
 | `lng` | float | ✅ | 検索中心の経度 |
-| `radius` | float | ❌ | 検索範囲メートル（デフォルト: 30.0） |
 
 ### 内部処理フロー
 
-1. フロントエンドから受け取った `lat`, `lng`, `radius` パラメータを受け取る
-2. バックエンド側で環境変数の `GOOGLE_MAPS_API_KEY` と `language=ja` を付加する
+1. フロントエンドから受け取った `lat`, `lng` パラメータを受け取る
+2. バックエンド側で環境変数の `GOOGLE_MAPS_API_KEY` と `language=ja` を付加し、さらに距離順で最寄りの施設を取得するため内部的に `rankby=distance`, `type=point_of_interest` を指定する
 3. `https://maps.googleapis.com/maps/api/place/nearbysearch/json` にリクエストを送信する
 4. Google API から返ってきた JSON レスポンスをそのままフロントエンドに返却する
 
