@@ -39,8 +39,6 @@ class ApiService {
   /// [focalLength35mm] 35mm換算焦点距離。EXIFから取得できない場合はnull。
   Future<AnalyzeResponse> analyzeImageCamera({
     required XFile imageFile,
-    required double lat,
-    required double lng,
     double? bearing,
     double? focalLength35mm,
   }) async {
@@ -54,10 +52,6 @@ class ApiService {
     request.files.add(
       http.MultipartFile.fromBytes('image', bytes, filename: imageFile.name),
     );
-
-    // GPS座標を送信（モードAは必須）
-    request.fields['lat'] = lat.toString();
-    request.fields['lng'] = lng.toString();
 
     // コンパス方位角を 0〜360 に正規化して送信（仕様書 Section 6-4 準拠）
     if (bearing != null) {
@@ -320,17 +314,23 @@ class ApiService {
   /// 共通: リクエスト送信とレスポンスのパース
 
   Future<AnalyzeResponse> _sendRequest(http.MultipartRequest request) async {
+    // デバッグ: リクエストの詳細を出力
+    debugPrint('[ApiService] Sending ${request.method} to ${request.url}');
+    debugPrint('[ApiService] Form fields: ${request.fields}');
+    debugPrint('[ApiService] Files: ${request.files.map((f) => '${f.field}=${f.filename} (${f.length} bytes)').toList()}');
+
     final response = await request.send();
     final responseData = await response.stream.bytesToString();
+
+    debugPrint('[ApiService] Response status: ${response.statusCode}');
 
     if (response.statusCode == 200) {
       final jsonResponse = jsonDecode(responseData) as Map<String, dynamic>;
       return AnalyzeResponse.fromJson(jsonResponse);
-    } else if (response.statusCode == 400) {
-      // GPS座標が取得できなかった場合など
-      throw Exception('リクエストエラー (400): GPS座標またはEXIFデータが不足しています');
     } else {
-      throw Exception('サーバーエラー: HTTP ${response.statusCode}');
+      // エラー時はレスポンスボディの詳細を出力
+      debugPrint('[ApiService] ❌ API Error Body: $responseData');
+      throw Exception('APIエラー (${response.statusCode}): $responseData');
     }
   }
 }

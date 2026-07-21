@@ -1,7 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:geolocator/geolocator.dart';
 import 'package:flutter_compass/flutter_compass.dart';
 import '../models/analyze_result.dart';
 import '../services/api_service.dart';
@@ -49,16 +48,12 @@ class SelectedImageNotifier extends StateNotifier<ImageAnalyzeState> {
   /// これにより、バックエンドの「物体の実際のGPS位置推定」が高精度（high）になる。
   Future<void> pickImageFromCamera() async {
     try {
-      // 1. 撮影前にセンサー値を取得
-      final position = await _getCurrentPosition();
+      // 1. 撮影前にセンサー値を取得（コンパス方位角のみ）
       final bearing = await _getCompassBearing();
 
       // 2. カメラで撮影
       final XFile? image = await _picker.pickImage(
         source: ImageSource.camera,
-        maxWidth: 1920,
-        maxHeight: 1920,
-        imageQuality: 90,
       );
       if (image == null) return;
 
@@ -70,20 +65,9 @@ class SelectedImageNotifier extends StateNotifier<ImageAnalyzeState> {
         clearError: true,
       );
 
-      if (position == null) {
-        // GPS取得失敗 → エラーを表示（GPS座標は必須）
-        state = state.copyWith(
-          isAnalyzing: false,
-          errorMessage: 'GPS座標を取得できませんでした。位置情報の許可を確認してください。',
-        );
-        return;
-      }
-
-      // 4. モードA API呼び出し（GPS + bearing を送信）
+      // 4. モードA API呼び出し（bearing を送信、位置情報はEXIFから）
       final result = await _apiService.analyzeImageCamera(
         imageFile: image,
-        lat: position.latitude,
-        lng: position.longitude,
         bearing: bearing,
       );
 
@@ -103,9 +87,6 @@ class SelectedImageNotifier extends StateNotifier<ImageAnalyzeState> {
     try {
       final XFile? image = await _picker.pickImage(
         source: ImageSource.gallery,
-        maxWidth: 1920,
-        maxHeight: 1920,
-        imageQuality: 90,
       );
       if (image == null) return;
 
@@ -129,22 +110,6 @@ class SelectedImageNotifier extends StateNotifier<ImageAnalyzeState> {
 
   void clearImage() {
     state = const ImageAnalyzeState();
-  }
-
-  /// GPSの現在地を取得。失敗した場合はnullを返す。
-  Future<Position?> _getCurrentPosition() async {
-    try {
-      final permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied ||
-          permission == LocationPermission.deniedForever) {
-        return null;
-      }
-      return await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high,
-      );
-    } catch (_) {
-      return null;
-    }
   }
 
   /// コンパスの方位角を取得。Webや取得不可の場合はnullを返す。
