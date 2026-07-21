@@ -57,19 +57,19 @@ async def search_places(
 @router.get("/places/nearby")
 async def nearby_places(
     lat: float = Query(..., description="緯度"),
-    lng: float = Query(..., description="経度"),
-    radius: float = Query(30.0, description="検索半径（メートル）")
+    lng: float = Query(..., description="経度")
 ):
     """
     Google Places API (Nearby Search) のプロキシエンドポイント。
-    フロントエンドからの CORS 制約を回避し、指定した座標周辺の施設情報を取得する。
+    フロントエンドからの CORS 制約を回避し、指定した座標周辺の施設情報を距離順で取得する。
     """
     if not settings.GOOGLE_MAPS_API_KEY:
         raise HTTPException(status_code=500, detail="Google Maps API Key is not configured.")
 
     params = {
         "location": f"{lat},{lng}",
-        "radius": str(radius),
+        "rankby": "distance",
+        "type": "point_of_interest",
         "key": settings.GOOGLE_MAPS_API_KEY,
         "language": "ja",
     }
