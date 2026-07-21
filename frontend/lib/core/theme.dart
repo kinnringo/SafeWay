@@ -6,6 +6,14 @@ class AppColors {
   static const Color blueAccent = Color(0xFF2563EB);
   static const Color blueAccentLight = Color(0xFF3B82F6);
   static const Color white = Colors.white;
+
+  // ── ダークモード用カラー ──
+  static const Color darkSurface = Color(0xFF2C2C2C);
+  static const Color darkCard = Color(0xFF212121);
+  static const Color darkTextPrimary = Color(0xFFEEEEEE);
+  static const Color darkTextSecondary = Color(0xFFBDBDBD);
+  static const Color darkBorder = Color(0xFF424242);
+  static const Color darkFabBackground = Color(0xFF333333);
 }
 
 class AppTheme {

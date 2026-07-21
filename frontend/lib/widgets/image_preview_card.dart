@@ -174,7 +174,7 @@ class ImagePreviewCard extends ConsumerWidget {
                         ? Image.network(
                             imageState.image!.path,
                             fit: BoxFit.cover,
-                            errorBuilder: (_, __, ___) =>
+                            errorBuilder: (context, error, stackTrace) =>
                                 const Icon(Icons.broken_image, size: 40),
                           )
                         : Image.file(
@@ -311,7 +311,7 @@ class ImagePreviewCard extends ConsumerWidget {
     return _badge(
       icon: isHigh ? Icons.location_on : Icons.location_searching,
       color: isHigh ? AppColors.emeraldGreen : Colors.orange.shade700,
-      text: '${_formatLabel(first.label)}を${distText}に登録しました',
+      text: '${_formatLabel(first.label)}を$distTextに登録しました',
     );
   }
 

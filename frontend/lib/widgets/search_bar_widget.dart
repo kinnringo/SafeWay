@@ -1,10 +1,12 @@
 import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:pointer_interceptor/pointer_interceptor.dart';
 import '../core/theme.dart';
 import '../services/api_service.dart';
+import '../providers/map_theme_provider.dart';
 
 /// 場所・住所の検索結果
 class PlaceResult {
@@ -72,7 +74,7 @@ class PlaceResult {
 ///
 /// 検索サジェストは Flutter Overlay に表示することで、
 /// GoogleMap（PlatformView）のタッチ横取り問題を回避する。
-class MapSearchBar extends StatefulWidget {
+class MapSearchBar extends ConsumerStatefulWidget {
   final GoogleMapController? mapController;
   final LatLng? currentPosition;
 
@@ -96,10 +98,10 @@ class MapSearchBar extends StatefulWidget {
   });
 
   @override
-  State<MapSearchBar> createState() => _MapSearchBarState();
+  ConsumerState<MapSearchBar> createState() => _MapSearchBarState();
 }
 
-class _MapSearchBarState extends State<MapSearchBar> {
+class _MapSearchBarState extends ConsumerState<MapSearchBar> {
   final TextEditingController _searchController = TextEditingController();
   final FocusNode _focusNode = FocusNode();
 
@@ -182,29 +184,35 @@ class _MapSearchBarState extends State<MapSearchBar> {
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxHeight: 300),
                 child: PointerInterceptor(
-                  child: Material(
-                    elevation: 8,
-                    borderRadius: BorderRadius.circular(14),
-                    clipBehavior: Clip.hardEdge,
-                    child: ListView.separated(
-                      padding: EdgeInsets.zero,
-                      shrinkWrap: true,
-                      physics: const ClampingScrollPhysics(),
-                      itemCount: results.length,
-                      separatorBuilder: (_, __) => Divider(
-                      height: 1,
-                      color: Colors.grey.shade200,
-                    ),
-                    itemBuilder: (context, index) {
-                      final place = results[index];
-                      return _SearchResultTile(
-                        place: place,
-                        onTap: () => _selectPlace(place),
+                  child: Consumer(
+                    builder: (context, ref, child) {
+                      final isDark = ref.watch(mapThemeProvider);
+                      return Material(
+                        elevation: 8,
+                        color: isDark ? AppColors.darkSurface : Colors.white,
+                        borderRadius: BorderRadius.circular(14),
+                        clipBehavior: Clip.hardEdge,
+                        child: ListView.separated(
+                          padding: EdgeInsets.zero,
+                          shrinkWrap: true,
+                          physics: const ClampingScrollPhysics(),
+                          itemCount: results.length,
+                          separatorBuilder: (context, index) => Divider(
+                            height: 1,
+                            color: isDark ? AppColors.darkBorder : Colors.grey.shade200,
+                          ),
+                          itemBuilder: (context, index) {
+                            final place = results[index];
+                            return _SearchResultTile(
+                              place: place,
+                              onTap: () => _selectPlace(place),
+                            );
+                          },
+                        ),
                       );
                     },
                   ),
                 ),
-              ),
               ),
             ),
           ),
@@ -340,6 +348,12 @@ class _MapSearchBarState extends State<MapSearchBar> {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = ref.watch(mapThemeProvider);
+    final bgColor = isDark ? AppColors.darkSurface : Colors.white;
+    final textColor = isDark ? AppColors.darkTextPrimary : Colors.black87;
+    final hintColor = isDark ? AppColors.darkTextSecondary : Colors.grey.shade500;
+    final iconColor = isDark ? AppColors.blueAccentLight : AppColors.primaryNavy;
+
     return Positioned(
       top: 12,
       left: 12,
@@ -350,7 +364,7 @@ class _MapSearchBarState extends State<MapSearchBar> {
             link: _layerLink,
             child: Container(
               decoration: BoxDecoration(
-                color: Colors.white,
+                color: bgColor,
                 borderRadius: BorderRadius.circular(14),
                 boxShadow: [
                   BoxShadow(
@@ -364,12 +378,12 @@ class _MapSearchBarState extends State<MapSearchBar> {
                 controller: _searchController,
                 focusNode: _focusNode,
                 onChanged: _search,
-                style: const TextStyle(fontSize: 14, color: Colors.black87),
+                style: TextStyle(fontSize: 14, color: textColor),
                 decoration: InputDecoration(
                   hintText: '場所・住所を検索...',
                   hintStyle: TextStyle(
                     fontSize: 14,
-                    color: Colors.grey.shade500,
+                    color: hintColor,
                   ),
                   prefixIcon: _isSearching
                       ? const Padding(
@@ -380,7 +394,7 @@ class _MapSearchBarState extends State<MapSearchBar> {
                             child: CircularProgressIndicator(strokeWidth: 2),
                           ),
                         )
-                      : const Icon(Icons.search, color: AppColors.primaryNavy),
+                      : Icon(Icons.search, color: iconColor),
                   suffixIcon: _searchController.text.isNotEmpty
                       ? IconButton(
                           icon: const Icon(Icons.clear, color: Colors.grey),
@@ -411,7 +425,7 @@ class _MapSearchBarState extends State<MapSearchBar> {
 // 検索結果タイル
 // ─────────────────────────────────────────
 
-class _SearchResultTile extends StatelessWidget {
+class _SearchResultTile extends ConsumerWidget {
   final PlaceResult place;
   final VoidCallback onTap;
 
@@ -427,16 +441,21 @@ class _SearchResultTile extends StatelessWidget {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final isDark = ref.watch(mapThemeProvider);
+    final textColor = isDark ? AppColors.darkTextPrimary : Colors.black87;
+    final subTextColor = isDark ? AppColors.darkTextSecondary : Colors.grey.shade600;
+    final iconColor = isDark ? AppColors.blueAccentLight : AppColors.primaryNavy;
+
     return InkWell(
       onTap: onTap,
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
         child: Row(
           children: [
-            const Icon(
+            Icon(
               Icons.location_on_outlined,
-              color: AppColors.primaryNavy,
+              color: iconColor,
               size: 20,
             ),
             const SizedBox(width: 12),
@@ -446,10 +465,10 @@ class _SearchResultTile extends StatelessWidget {
                 children: [
                   Text(
                     place.shortName,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 14,
                       fontWeight: FontWeight.w600,
-                      color: Colors.black87,
+                      color: textColor,
                     ),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
@@ -459,7 +478,7 @@ class _SearchResultTile extends StatelessWidget {
                     place.displayName,
                     style: TextStyle(
                       fontSize: 11,
-                      color: Colors.grey.shade600,
+                      color: subTextColor,
                     ),
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
@@ -473,7 +492,7 @@ class _SearchResultTile extends StatelessWidget {
                 _formatDistance(place.distanceMeters!),
                 style: TextStyle(
                   fontSize: 12,
-                  color: Colors.grey.shade600,
+                  color: subTextColor,
                   fontWeight: FontWeight.w500,
                 ),
               ),
