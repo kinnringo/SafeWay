@@ -48,15 +48,7 @@ router = APIRouter()
 @router.post("/analyze", response_model=AnalyzeResponse)
 async def analyze_image(
     image: UploadFile = File(..., description="解析する画像ファイル（JPEG/PNG）"),
-    # --- ライブカメラ用フィールド（省略可能; EXIF で補完される）---
-    lat: Optional[float] = Form(
-        None,
-        description="撮影者の緯度。省略時は画像 EXIF から自動抽出する。",
-    ),
-    lng: Optional[float] = Form(
-        None,
-        description="撮影者の経度。省略時は画像 EXIF から自動抽出する。",
-    ),
+    # --- カメラ用フィールド（省略可能; EXIF で補完される）---
     bearing: Optional[float] = Form(
         None,
         description=(
@@ -80,8 +72,9 @@ async def analyze_image(
     db: Session = Depends(get_db),
 ):
     """
-    画像と位置情報を受け取り、YOLO 推論 → 物体位置推定 → DB 保存を行い、
+    画像を受け取り、YOLO 推論 → 物体位置推定 → DB 保存を行い、
     検出結果と推定された物体位置を返す。
+    ※ 撮影位置は画像に埋め込まれた EXIF(GPS) 情報のみを使用する。
     """
     # ----------------------------------------------------------------
     # 1. 画像を読み込み、PIL Image オブジェクトを生成する
@@ -103,23 +96,23 @@ async def analyze_image(
     )
 
     # ----------------------------------------------------------------
-    # 3. Form フィールド > EXIF の優先順位でパラメータをマージする
+    # 3. 座標は EXIF のみを使用し、他のパラメータはマージする
     # ----------------------------------------------------------------
-    final_lat: Optional[float] = lat if lat is not None else exif.lat
-    final_lng: Optional[float] = lng if lng is not None else exif.lng
+    final_lat: Optional[float] = exif.lat
+    final_lng: Optional[float] = exif.lng
     final_bearing: Optional[float] = bearing if bearing is not None else exif.bearing_deg
     final_focal_35mm: Optional[float] = (
         focal_length_35mm if focal_length_35mm is not None else exif.focal_length_35mm
     )
 
-    # lat/lng は必須（Form または EXIF のどちらかにある必要がある）
+    # lat/lng は EXIF 情報から取得必須
     if final_lat is None or final_lng is None:
         raise HTTPException(
             status_code=400,
             detail=(
-                "GPS coordinates are required. "
-                "Provide 'lat' and 'lng' as form fields, "
-                "or upload an image with GPS EXIF data."
+                "GPS coordinates are missing. "
+                "Uploaded images must contain GPS EXIF data "
+                "to determine the correct location."
             ),
         )
 

@@ -137,18 +137,17 @@
 
 | パラメータ | 型 | 必須 | 説明 |
 |---|---|---|---|
-| `image` | File | ✅ | 解析する画像ファイル（JPEG/PNG） |
-| `lat` | float | ❌ | 撮影者の緯度。省略時はEXIFから自動抽出 |
-| `lng` | float | ❌ | 撮影者の経度。省略時はEXIFから自動抽出 |
+| `image` | File | ✅ | 解析する画像ファイル（JPEG/PNG）。**必ずGPS EXIF情報が含まれている必要があります。** |
 | `bearing` | float | ❌ | コンパス方位角（度、0=北、時計回り）。省略時はEXIFのGPSImgDirectionから抽出 |
 | `focal_length_35mm` | float | ❌ | 35mm換算焦点距離（mm）。省略時はEXIFから抽出 |
 | `test_mode` | bool | ❌ | `true` の場合、YOLOが未検出でもダミーの街灯検出を1つ注入する（デバッグ用） |
 
 **パラメータ優先順位**: Form フィールドの値 > EXIF から抽出した値 > エラーまたはフォールバック
+※ **位置情報（緯度・経度）については、Form フィールドでの指定は廃止され、EXIF からのみ取得します。**
 
 **位置推定精度**:
 - `bearing` と `focal_length_35mm` の両方が取得できた場合: `position_accuracy = "high"`（三角測量で対象物の実位置を推定）
-- いずれかが不足している場合: `position_accuracy = "low"`（撮影者位置をフォールバックとして使用）
+- いずれかが不足している場合: `position_accuracy = "low"`（画像に記録されたEXIF撮影位置をフォールバックとして使用）
 
 ### レスポンス
 
