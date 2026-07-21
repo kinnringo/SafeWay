@@ -1,9 +1,11 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:http/http.dart' as http;
 import '../core/theme.dart';
 import '../services/api_service.dart';
+import '../providers/map_theme_provider.dart';
 import 'package:pointer_interceptor/pointer_interceptor.dart';
 
 /// 場所情報のデータモデル
@@ -75,7 +77,7 @@ Future<void> showPlaceInfoSheet({
   );
 }
 
-class _PlaceInfoSheet extends StatefulWidget {
+class _PlaceInfoSheet extends ConsumerStatefulWidget {
   final LatLng tappedPoint;
   final String? placeId;
   final void Function(LatLng destination)? onRouteRequested;
@@ -87,10 +89,10 @@ class _PlaceInfoSheet extends StatefulWidget {
   });
 
   @override
-  State<_PlaceInfoSheet> createState() => _PlaceInfoSheetState();
+  ConsumerState<_PlaceInfoSheet> createState() => _PlaceInfoSheetState();
 }
 
-class _PlaceInfoSheetState extends State<_PlaceInfoSheet> {
+class _PlaceInfoSheetState extends ConsumerState<_PlaceInfoSheet> {
   PlaceDetail? _placeDetail;
   bool _isLoading = true;
 
@@ -280,13 +282,17 @@ class _PlaceInfoSheetState extends State<_PlaceInfoSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = ref.watch(mapThemeProvider);
+    final bgColor = isDark ? AppColors.darkSurface : Colors.white;
+    final handleColor = isDark ? AppColors.darkBorder : Colors.grey.shade300;
+    
     return Container(
       constraints: BoxConstraints(
         maxHeight: MediaQuery.of(context).size.height * 0.72,
       ),
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      decoration: BoxDecoration(
+        color: bgColor,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -297,7 +303,7 @@ class _PlaceInfoSheetState extends State<_PlaceInfoSheet> {
             width: 40,
             height: 4,
             decoration: BoxDecoration(
-              color: Colors.grey.shade300,
+              color: handleColor,
               borderRadius: BorderRadius.circular(2),
             ),
           ),
@@ -329,6 +335,11 @@ class _PlaceInfoSheetState extends State<_PlaceInfoSheet> {
 
   Widget _buildContent() {
     final detail = _placeDetail!;
+    final isDark = ref.watch(mapThemeProvider);
+    final textColor = isDark ? AppColors.darkTextPrimary : Colors.black87;
+    final subTextColor = isDark ? AppColors.darkTextSecondary : Colors.grey.shade500;
+    final categoryBgColor = isDark ? AppColors.darkCard : AppColors.primaryNavy.withValues(alpha: 0.1);
+    final categoryTextColor = isDark ? AppColors.blueAccentLight : AppColors.primaryNavy;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -352,14 +363,14 @@ class _PlaceInfoSheetState extends State<_PlaceInfoSheet> {
                   padding: const EdgeInsets.symmetric(
                       horizontal: 10, vertical: 3),
                   decoration: BoxDecoration(
-                    color: AppColors.primaryNavy.withValues(alpha: 0.1),
+                    color: categoryBgColor,
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Text(
                     _formatCategory(detail.category!),
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 11,
-                      color: AppColors.primaryNavy,
+                      color: categoryTextColor,
                       fontWeight: FontWeight.w600,
                     ),
                   ),
@@ -374,10 +385,10 @@ class _PlaceInfoSheetState extends State<_PlaceInfoSheet> {
                   Expanded(
                     child: Text(
                       detail.name,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 20,
                         fontWeight: FontWeight.bold,
-                        color: Colors.black87,
+                        color: textColor,
                       ),
                     ),
                   ),
@@ -433,10 +444,10 @@ class _PlaceInfoSheetState extends State<_PlaceInfoSheet> {
                       const SizedBox(width: 3),
                       Text(
                         detail.rating!.toStringAsFixed(1),
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 14,
                           fontWeight: FontWeight.w700,
-                          color: Colors.black87,
+                          color: textColor,
                         ),
                       ),
                       if (detail.userRatingsTotal != null) ...[
@@ -445,7 +456,7 @@ class _PlaceInfoSheetState extends State<_PlaceInfoSheet> {
                           '(${_formatCount(detail.userRatingsTotal!)})',
                           style: TextStyle(
                             fontSize: 12,
-                            color: Colors.grey.shade500,
+                            color: subTextColor,
                           ),
                         ),
                       ],
@@ -502,7 +513,7 @@ class _PlaceInfoSheetState extends State<_PlaceInfoSheet> {
                         detail.address,
                         style: TextStyle(
                           fontSize: 13,
-                          color: Colors.grey.shade600,
+                          color: subTextColor,
                         ),
                       ),
                     ),
@@ -522,7 +533,7 @@ class _PlaceInfoSheetState extends State<_PlaceInfoSheet> {
                     '${widget.tappedPoint.longitude.toStringAsFixed(5)}',
                     style: TextStyle(
                       fontSize: 11,
-                      color: Colors.grey.shade400,
+                      color: subTextColor,
                       fontFamily: 'monospace',
                     ),
                   ),
@@ -543,7 +554,7 @@ class _PlaceInfoSheetState extends State<_PlaceInfoSheet> {
                   onPressed: () => Navigator.pop(context),
                   child: Text(
                     '閉じる',
-                    style: TextStyle(color: Colors.grey.shade600),
+                    style: TextStyle(color: subTextColor),
                   ),
                 ),
               ),
@@ -562,12 +573,17 @@ class _PlaceInfoSheetState extends State<_PlaceInfoSheet> {
 
     if (!hasAdditional) return const SizedBox.shrink();
 
+    final isDark = ref.watch(mapThemeProvider);
+    final textColor = isDark ? AppColors.darkTextPrimary : Colors.black87;
+    final subTextColor = isDark ? AppColors.darkTextSecondary : Colors.grey.shade700;
+    final dividerColor = isDark ? AppColors.darkBorder : null;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Padding(
-          padding: EdgeInsets.symmetric(vertical: 12),
-          child: Divider(height: 1),
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          child: Divider(height: 1, color: dividerColor),
         ),
 
         // 電話番号
@@ -579,8 +595,8 @@ class _PlaceInfoSheetState extends State<_PlaceInfoSheet> {
               const SizedBox(width: 8),
               Text(
                 detail.phoneNumber!,
-                style: const TextStyle(
-                    fontSize: 13, color: Colors.black87),
+                style: TextStyle(
+                    fontSize: 13, color: textColor),
               ),
             ],
           ),
@@ -597,9 +613,9 @@ class _PlaceInfoSheetState extends State<_PlaceInfoSheet> {
               Expanded(
                 child: Text(
                   detail.website!,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 13,
-                    color: Colors.blue,
+                    color: isDark ? AppColors.blueAccentLight : Colors.blue,
                     decoration: TextDecoration.underline,
                   ),
                   overflow: TextOverflow.ellipsis,
@@ -620,9 +636,9 @@ class _PlaceInfoSheetState extends State<_PlaceInfoSheet> {
             child: ExpansionTile(
               leading: const Icon(Icons.access_time_outlined,
                   size: 16, color: Colors.grey),
-              title: const Text(
+              title: Text(
                 '営業時間を確認',
-                style: TextStyle(fontSize: 13, color: Colors.black87),
+                style: TextStyle(fontSize: 13, color: textColor),
               ),
               tilePadding: EdgeInsets.zero,
               childrenPadding:
@@ -634,7 +650,7 @@ class _PlaceInfoSheetState extends State<_PlaceInfoSheet> {
                   child: Text(
                     text,
                     style: TextStyle(
-                        fontSize: 12, color: Colors.grey.shade700),
+                        fontSize: 12, color: subTextColor),
                   ),
                 );
               }).toList(),

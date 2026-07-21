@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import '../providers/location_provider.dart';
 import '../core/theme.dart';
+import '../providers/map_theme_provider.dart';
 import 'package:pointer_interceptor/pointer_interceptor.dart';
 
 class ActionButtons extends ConsumerWidget {
@@ -20,6 +21,7 @@ class ActionButtons extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final locationAsync = ref.watch(locationStreamProvider);
+    final isDark = ref.watch(mapThemeProvider);
 
     return Positioned(
       right: 16,
@@ -46,8 +48,8 @@ class ActionButtons extends ConsumerWidget {
                     );
                   }
                 },
-                backgroundColor: AppColors.white,
-                foregroundColor: AppColors.primaryNavy,
+                backgroundColor: isDark ? AppColors.darkFabBackground : AppColors.white,
+                foregroundColor: isDark ? AppColors.darkTextPrimary : AppColors.primaryNavy,
                 elevation: 4,
                 child: locationAsync.when(
                   data: (_) => const Icon(Icons.my_location),

@@ -6,7 +6,9 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:pointer_interceptor/pointer_interceptor.dart';
 import '../providers/image_provider.dart';
 import '../providers/hazard_provider.dart';
+import '../providers/map_theme_provider.dart';
 import '../core/theme.dart';
+import '../core/map_styles.dart';
 import '../widgets/image_preview_card.dart';
 import '../widgets/action_buttons.dart';
 import '../widgets/search_bar_widget.dart';
@@ -363,49 +365,62 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     );
   }
 
-  /// ハザード詳細のボトムシートを表示
   void _showHazardDetailsSheet(HazardPoint hazard) {
     showModalBottomSheet(
       context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
+      backgroundColor: Colors.transparent,
       builder: (context) {
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.all(20.0),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Icon(
-                      hazard.eventType == 'wildlife' ? Icons.pets : Icons.warning_amber,
-                      color: hazard.eventType == 'wildlife' ? Colors.orange : Colors.yellow.shade700,
-                      size: 28,
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      hazard.label ?? '危険情報',
-                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                    ),
-                  ],
+        return Consumer(
+          builder: (context, ref, child) {
+            final isDark = ref.watch(mapThemeProvider);
+            final bgColor = isDark ? AppColors.darkSurface : Colors.white;
+            final textColor = isDark ? AppColors.darkTextPrimary : Colors.black87;
+            final subTextColor = isDark ? AppColors.darkTextSecondary : Colors.black54;
+
+            return PointerInterceptor(
+              child: Container(
+                decoration: BoxDecoration(
+                  color: bgColor,
+                  borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
                 ),
-                const SizedBox(height: 12),
-                Text('種類: ${hazard.sourceType}'),
-                Text('更新日時: ${hazard.updatedAt}'),
-                if (hazard.confidence != null)
-                  Text('信頼度: ${(hazard.confidence! * 100).toStringAsFixed(1)}%'),
-              ],
-            ),
-          ),
+                child: SafeArea(
+                  child: Padding(
+                    padding: const EdgeInsets.all(20.0),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Icon(
+                              hazard.eventType == 'wildlife' ? Icons.pets : Icons.warning_amber,
+                              color: hazard.eventType == 'wildlife' ? Colors.orange : Colors.yellow.shade700,
+                              size: 28,
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              hazard.label ?? '危険情報',
+                              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: textColor),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        Text('種類: ${hazard.sourceType}', style: TextStyle(color: subTextColor)),
+                        Text('更新日時: ${hazard.updatedAt}', style: TextStyle(color: subTextColor)),
+                        if (hazard.confidence != null)
+                          Text('信頼度: ${(hazard.confidence! * 100).toStringAsFixed(1)}%', style: TextStyle(color: subTextColor)),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            );
+          },
         );
       },
     );
   }
 
-  /// ハザード設定ダイアログを表示
   void _showHazardSettingsDialog() {
     showDialog(
       context: context,
@@ -413,38 +428,48 @@ class _MapScreenState extends ConsumerState<MapScreen> {
         return Consumer(
           builder: (context, ref, child) {
             final hazardState = ref.watch(hazardProvider);
-            return AlertDialog(
-              title: const Text('ハザード表示設定'),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('通常時の検索半径: ${(hazardState.normalRadius / 1000).toStringAsFixed(1)} km'),
-                  Slider(
-                    value: hazardState.normalRadius,
-                    min: 1000.0,
-                    max: 50000.0,
-                    divisions: 49,
-                    onChanged: (val) => ref.read(hazardProvider.notifier).setNormalRadius(val),
-                    onChangeEnd: (_) => _fetchHazards(),
-                  ),
-                  const SizedBox(height: 16),
-                  Text('ルート時の検索半径: ${(hazardState.routingRadius / 1000).toStringAsFixed(1)} km'),
-                  Slider(
-                    value: hazardState.routingRadius,
-                    min: 100.0,
-                    max: 5000.0,
-                    divisions: 49,
-                    onChanged: (val) => ref.read(hazardProvider.notifier).setRoutingRadius(val),
+            final isDark = ref.watch(mapThemeProvider);
+            final bgColor = isDark ? AppColors.darkSurface : Colors.white;
+            final textColor = isDark ? AppColors.darkTextPrimary : Colors.black87;
+            final subTextColor = isDark ? AppColors.darkTextSecondary : Colors.black54;
+
+            return PointerInterceptor(
+              child: AlertDialog(
+                backgroundColor: bgColor,
+                title: Text('ハザード表示設定', style: TextStyle(color: textColor)),
+                content: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('通常時の検索半径: ${(hazardState.normalRadius / 1000).toStringAsFixed(1)} km', style: TextStyle(color: subTextColor)),
+                    Slider(
+                      value: hazardState.normalRadius,
+                      min: 1000.0,
+                      max: 50000.0,
+                      divisions: 49,
+                      activeColor: isDark ? AppColors.blueAccentLight : AppColors.primaryNavy,
+                      onChanged: (val) => ref.read(hazardProvider.notifier).setNormalRadius(val),
+                      onChangeEnd: (_) => _fetchHazards(),
+                    ),
+                    const SizedBox(height: 16),
+                    Text('ルート時の検索半径: ${(hazardState.routingRadius / 1000).toStringAsFixed(1)} km', style: TextStyle(color: subTextColor)),
+                    Slider(
+                      value: hazardState.routingRadius,
+                      min: 100.0,
+                      max: 5000.0,
+                      divisions: 49,
+                      activeColor: isDark ? AppColors.blueAccentLight : AppColors.primaryNavy,
+                      onChanged: (val) => ref.read(hazardProvider.notifier).setRoutingRadius(val),
+                    ),
+                  ],
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    child: Text('閉じる', style: TextStyle(color: isDark ? AppColors.blueAccentLight : AppColors.primaryNavy)),
                   ),
                 ],
               ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(context).pop(),
-                  child: const Text('閉じる'),
-                ),
-              ],
             );
           },
         );
@@ -616,6 +641,10 @@ class _MapScreenState extends ConsumerState<MapScreen> {
 
     final safe = _currentRouteResponse!.safeRoute;
     final shortest = _currentRouteResponse!.shortestRoute;
+    final isDark = ref.watch(mapThemeProvider);
+    final bgColor = isDark ? AppColors.darkSurface.withValues(alpha: 0.97) : Colors.white.withValues(alpha: 0.97);
+    final headerColor = isDark ? Colors.white : AppColors.primaryNavy;
+    final iconCloseColor = isDark ? Colors.white70 : Colors.grey;
 
     return Positioned(
       bottom: 24,
@@ -627,7 +656,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(18),
           ),
-          color: Colors.white.withValues(alpha: 0.97),
+          color: bgColor,
           child: Padding(
             padding: const EdgeInsets.symmetric(
                 horizontal: 16.0, vertical: 14.0),
@@ -638,18 +667,18 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    const Text(
+                    Text(
                       '🧭 ルート比較',
                       style: TextStyle(
                         fontWeight: FontWeight.bold,
                         fontSize: 14,
-                        color: AppColors.primaryNavy,
+                        color: headerColor,
                       ),
                     ),
                     GestureDetector(
                       onTap: _clearRoute,
-                      child: const Icon(Icons.close,
-                          size: 20, color: Colors.grey),
+                      child: Icon(Icons.close,
+                          size: 20, color: iconCloseColor),
                     ),
                   ],
                 ),
@@ -788,17 +817,19 @@ class _MapScreenState extends ConsumerState<MapScreen> {
               distance >= 1000
                   ? '${(distance / 1000).toStringAsFixed(1)} km'
                   : '${distance.toStringAsFixed(0)} m',
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 18,
                 fontWeight: FontWeight.w700,
-                color: Colors.black87,
+                color: ref.watch(mapThemeProvider) ? AppColors.darkTextPrimary : Colors.black87,
               ),
             ),
             const SizedBox(height: 2),
             Text(
               '安全: ${(score * 100).toStringAsFixed(0)}%',
-              style:
-                  TextStyle(fontSize: 11, color: Colors.grey.shade600),
+              style: TextStyle(
+                fontSize: 11, 
+                color: ref.watch(mapThemeProvider) ? AppColors.darkTextSecondary : Colors.grey.shade600,
+              ),
             ),
           ],
         ),
@@ -826,6 +857,9 @@ class _MapScreenState extends ConsumerState<MapScreen> {
         ? const Color(0xFF2ECC71)
         : const Color(0xFF3498DB);
 
+    final isDark = ref.watch(mapThemeProvider);
+    final bgColor = isDark ? AppColors.darkSurface : AppColors.primaryNavy;
+
     return Positioned(
       top: 0,
       left: 0,
@@ -833,7 +867,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       child: PointerInterceptor(
         child: Container(
           decoration: BoxDecoration(
-            color: AppColors.primaryNavy,
+            color: bgColor,
             boxShadow: [
               BoxShadow(
                 color: Colors.black.withValues(alpha: 0.3),
@@ -934,8 +968,71 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   // build
   // ─────────────────────────────────────────────────────────────────────
 
+  void _showSettingsSheet() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (context) {
+        return Consumer(
+          builder: (context, ref, child) {
+            final isDarkTheme = ref.watch(mapThemeProvider);
+            final bgColor = isDarkTheme ? AppColors.darkSurface : Colors.white;
+            final textColor = isDarkTheme ? AppColors.darkTextPrimary : Colors.black87;
+
+            return PointerInterceptor(
+              child: Container(
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  color: bgColor,
+                  borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          '設定',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            color: textColor,
+                          ),
+                        ),
+                        IconButton(
+                          icon: Icon(Icons.close, color: textColor),
+                          onPressed: () => Navigator.pop(context),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    SwitchListTile(
+                      title: Text('マップのダークモード', style: TextStyle(color: textColor)),
+                      value: isDarkTheme,
+                      onChanged: (value) {
+                        ref.read(mapThemeProvider.notifier).toggleTheme(value);
+                      },
+                      secondary: Icon(
+                        isDarkTheme ? Icons.dark_mode : Icons.light_mode,
+                        color: isDarkTheme ? AppColors.blueAccentLight : Colors.orange,
+                      ),
+                      activeThumbColor: AppColors.blueAccentLight,
+                    ),
+                    const SizedBox(height: 20),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final isDarkTheme = ref.watch(mapThemeProvider);
     final imageState = ref.watch(selectedImageProvider);
 
     return Scaffold(
@@ -1000,6 +1097,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                 setState(() {
                   _mapController = controller;
                 });
+
                 if (_currentPosition != null &&
                     !_hasMovedToCurrentLocation) {
                   controller.animateCamera(
@@ -1013,6 +1111,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                 target: _defaultCenter,
                 zoom: 15.0,
               ),
+              style: isDarkTheme ? MapStyles.dark : MapStyles.light,
               // ─ 本家 Google Map 準拠のインタラクションハンドラ ─
               onTap: _onMapTap,
               // onPoiTap: google_maps_flutter 2.17.x 時点で公開なし。
@@ -1054,8 +1153,27 @@ class _MapScreenState extends ConsumerState<MapScreen> {
           // ── 2. ナビ中 HUD（最前面: AppBar代替）─────────────────────
           _buildNavigationHud(),
 
-          // ── 2.5. 左側：ハザード情報トグルボタン（ナビ中は非表示）───────────
-          if (!_isNavigating)
+          // ── 2.5. 左側：ハザード情報トグルボタン＆設定ボタン（ナビ中は非表示）───────────
+          if (!_isNavigating) ...[
+            // 設定ボタン
+            Positioned(
+              left: 16,
+              top: 80, // ハザードボタンのすぐ上
+              child: SafeArea(
+                child: PointerInterceptor(
+                  child: FloatingActionButton(
+                    heroTag: 'settingsBtn',
+                    onPressed: _showSettingsSheet,
+                    backgroundColor: isDarkTheme ? AppColors.darkFabBackground : Colors.white,
+                    foregroundColor: isDarkTheme ? AppColors.darkTextPrimary : AppColors.primaryNavy,
+                    mini: true,
+                    tooltip: '設定',
+                    child: const Icon(Icons.settings),
+                  ),
+                ),
+              ),
+            ),
+            // ハザード情報ボタン
             Positioned(
               left: 16,
               top: 140, // 検索バーの下あたり
@@ -1085,6 +1203,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                 ),
               ),
             ),
+          ],
 
           // ── 3. 上部：検索バー（ナビ中は非表示）─────────────────────
           if (!_isNavigating)
