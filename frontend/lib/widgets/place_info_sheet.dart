@@ -168,7 +168,9 @@ class _PlaceInfoSheetState extends State<_PlaceInfoSheet> {
 
       return PlaceDetail(
         name: result['name'] as String? ?? 'この場所',
-        address: result['vicinity'] as String? ?? '',
+        address: result['formatted_address'] as String? ??
+            result['vicinity'] as String? ??
+            '',
         category: category,
         rating: (result['rating'] as num?)?.toDouble(),
         userRatingsTotal: result['user_ratings_total'] as int?,

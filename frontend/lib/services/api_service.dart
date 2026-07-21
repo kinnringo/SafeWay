@@ -195,16 +195,40 @@ class ApiService {
         final results = data['results'] as List<dynamic>?;
         
         if (results != null && results.isNotEmpty) {
-          // 一番近い施設を返す
-          final place = results.first as Map<String, dynamic>;
-          final geomLat = place['geometry']['location']['lat'] as num;
-          final geomLng = place['geometry']['location']['lng'] as num;
-          
-          return {
-            'lat': geomLat.toDouble(),
-            'lng': geomLng.toDouble(),
-            'placeId': place['place_id'] as String,
-          };
+          // タップ座標に最も近い施設を選ぶ（results.first は prominence 順のため不適切）
+          Map<String, dynamic>? closest;
+          double minDistSq = double.infinity;
+
+          for (final r in results) {
+            final place = r as Map<String, dynamic>;
+            final geom = place['geometry'] as Map<String, dynamic>?;
+            final loc = geom?['location'] as Map<String, dynamic>?;
+            if (loc == null) continue;
+
+            final rLat = (loc['lat'] as num).toDouble();
+            final rLng = (loc['lng'] as num).toDouble();
+            // 三平方の定理による簡易距離（二乗和）で比較
+            final distSq =
+                (rLat - lat) * (rLat - lat) + (rLng - lng) * (rLng - lng);
+
+            if (distSq < minDistSq) {
+              minDistSq = distSq;
+              closest = place;
+            }
+          }
+
+          if (closest != null) {
+            final geomLat =
+                closest['geometry']['location']['lat'] as num;
+            final geomLng =
+                closest['geometry']['location']['lng'] as num;
+
+            return {
+              'lat': geomLat.toDouble(),
+              'lng': geomLng.toDouble(),
+              'placeId': closest['place_id'] as String,
+            };
+          }
         }
       }
     } catch (e) {
