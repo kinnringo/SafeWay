@@ -48,7 +48,9 @@ class _MapScreenState extends ConsumerState<MapScreen> {
 
   /// ハザード情報表示用のマーカー
   Set<Marker> _hazardMarkers = {};
-  BitmapDescriptor? _bearMarkerIcon;
+  BitmapDescriptor? _bearMarkerSmall;
+  BitmapDescriptor? _bearMarkerMedium;
+  BitmapDescriptor? _bearMarkerLarge;
 
   /// ルート描画用のポリラインセット
   Set<Polyline> _polylines = {};
@@ -204,7 +206,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       _updateRoutePolylines(response);
       
       // ハザードマーカーの生成
-      final newHazardMarkers = response.nearbyHazards.map(_createHazardMarker).toSet();
+      final newHazardMarkers = response.nearbyHazards.map(_createHazardMarker).whereType<Marker>().toSet();
       setState(() {
         _hazardMarkers = newHazardMarkers;
       });
@@ -412,13 +414,11 @@ class _MapScreenState extends ConsumerState<MapScreen> {
 
       // ズームが 14.5 以上の場合、野生動物（wildlife）マーカーを除外
       final filteredHazards = hazards.where((hazard) {
-        final isWildlife = hazard.eventType == 'wildlife' ||
-            hazard.label == 'bear' ||
-            hazard.label == 'wildlife';
+        final isWildlife = hazard.eventType == 'wildlife' || hazard.label == 'wildlife';
         return !(_currentZoom >= 14.5 && isWildlife);
       }).toList();
 
-      final newHazardMarkers = filteredHazards.map(_createHazardMarker).toSet();
+      final newHazardMarkers = filteredHazards.map(_createHazardMarker).whereType<Marker>().toSet();
       if (mounted) {
         setState(() {
           _hazardMarkers = newHazardMarkers;
@@ -430,19 +430,35 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   }
 
   /// ハザード情報からマーカーを生成
-  Marker _createHazardMarker(HazardPoint hazard) {
-    debugPrint('Hazard Info - type: ${hazard.sourceType}, label: ${hazard.label}');
+  Marker? _createHazardMarker(HazardPoint hazard) {
+    debugPrint('Hazard Info - eventType: ${hazard.eventType}, sourceType: ${hazard.sourceType}, label:${hazard.label}');
     
     final isBear = hazard.sourceType.toLowerCase() == 'bear' ||
+                   hazard.eventType?.toLowerCase() == 'bear' ||
                    (hazard.label?.toLowerCase().contains('bear') ?? false) ||
                    (hazard.label?.contains('クマ') ?? false) ||
                    (hazard.label?.contains('熊') ?? false);
 
+    if (isBear && _currentZoom >= 15.0) {
+      return null;
+    }
+
+    BitmapDescriptor? bearIcon;
+    if (isBear) {
+      if (_currentZoom < 8.0) {
+        bearIcon = _bearMarkerSmall;
+      } else if (_currentZoom < 12.0) {
+        bearIcon = _bearMarkerMedium;
+      } else {
+        bearIcon = _bearMarkerLarge;
+      }
+    }
+
     return Marker(
       markerId: MarkerId('hazard_${hazard.id}'),
       position: LatLng(hazard.lat, hazard.lng),
-      icon: (isBear && _bearMarkerIcon != null)
-          ? _bearMarkerIcon!
+      icon: (isBear && bearIcon != null)
+          ? bearIcon
           : BitmapDescriptor.defaultMarkerWithHue(
               isBear ? BitmapDescriptor.hueOrange : BitmapDescriptor.hueYellow,
             ),
@@ -647,10 +663,14 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   }
 
   Future<void> _loadCustomMarkers() async {
-    final icon = await createBearMarker();
+    final small = await createBearMarker(size: 25);
+    final medium = await createBearMarker(size: 45);
+    final large = await createBearMarker(size: 65);
     if (mounted) {
       setState(() {
-        _bearMarkerIcon = icon;
+        _bearMarkerSmall = small;
+        _bearMarkerMedium = medium;
+        _bearMarkerLarge = large;
       });
       
       // アイコン生成後にすでにハザードマーカーが存在していれば、アイコンを適用するために再描画（または再取得）する
@@ -1221,24 +1241,19 @@ class _MapScreenState extends ConsumerState<MapScreen> {
               onLongPress: _onLongPress,
               onCameraIdle: _onCameraIdle,
               onCameraMove: (CameraPosition position) {
-                // ズームが 14.5 を境に変化した場合のみ setState して再描画
+                // ズーム閾値を超えた場合のみ setState して再描画
                 final newZoom = position.zoom;
-                final crossedThreshold =
-                    (_currentZoom < 14.5) != (newZoom < 14.5);
+                final crossed8_0 = (_currentZoom < 8.0) != (newZoom < 8.0);
+                final crossed12_0 = (_currentZoom < 12.0) != (newZoom < 12.0);
+                final crossed14_5 = (_currentZoom < 14.5) != (newZoom < 14.5);
+                final crossed15_0 = (_currentZoom < 15.0) != (newZoom < 15.0);
                 _currentZoom = newZoom;
-                if (crossedThreshold && mounted) {
+                if ((crossed8_0 || crossed12_0 || crossed14_5 || crossed15_0) && mounted) {
                   setState(() {
-                    // _hazardMarkers はそのまま保持し、
-                    // build() で _currentZoom に基づく再フィルタリングを発動させる
                     _hazardMarkers = _hazardMarkers
-                        .where((marker) {
-                          // wildlife マーカーは ID が 'hazard_' プレフィックスで判定済み
-                          // 再フィルタリングは次の _fetchHazards() に委ねる
-                          return true;
-                        })
+                        .where((marker) => true)
                         .toSet();
                   });
-                  // ズームが閾値を超えた瞬間に即再取得してフィルタリングを適用
                   _fetchHazards();
                 }
               },
@@ -1521,6 +1536,29 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                 ),
               ),
             ),
+          // ── 9. クマ情報 出典表記 ──────────────────────────────────────
+          Positioned(
+            bottom: 24,
+            left: 8,
+            child: SafeArea(
+              child: IgnorePointer(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.7),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    '出典：群馬県環境森林部自然環境課',
+                    style: TextStyle(
+                      fontSize: 10,
+                      color: Colors.grey.shade700,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
         ],
       ),
     );

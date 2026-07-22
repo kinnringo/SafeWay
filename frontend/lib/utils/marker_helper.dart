@@ -3,8 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
-Future<BitmapDescriptor> createBearMarker() async {
-  const int size = 120; // マーカーの全体サイズ(px)
+Future<BitmapDescriptor> createBearMarker({required int size}) async {
   final ui.PictureRecorder pictureRecorder = ui.PictureRecorder();
   final Canvas canvas = Canvas(pictureRecorder);
 
