@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
 import '../models/analyze_result.dart';
 import '../models/route_models.dart';
+import '../models/coverage_models.dart';
 
 final apiServiceProvider = Provider<ApiService>((ref) => ApiService());
 
@@ -163,6 +164,32 @@ class ApiService {
       return points.map((e) => HazardPoint.fromJson(e)).toList();
     } else {
       throw Exception('ハザード情報の取得に失敗しました: HTTP ${response.statusCode}');
+    }
+  }
+
+  /// カバレッジ情報取得: GET /api/coverage
+  Future<CoverageResponse> fetchCoverage({
+    required double minLat,
+    required double minLng,
+    required double maxLat,
+    required double maxLng,
+    required double zoom,
+  }) async {
+    final uri = Uri.parse('$baseUrl/coverage').replace(queryParameters: {
+      'min_lat': minLat.toString(),
+      'min_lng': minLng.toString(),
+      'max_lat': maxLat.toString(),
+      'max_lng': maxLng.toString(),
+      'zoom': zoom.toString(),
+    });
+
+    final response = await http.get(uri);
+
+    if (response.statusCode == 200) {
+      final jsonMap = jsonDecode(response.body) as Map<String, dynamic>;
+      return CoverageResponse.fromJson(jsonMap);
+    } else {
+      throw Exception('カバレッジ情報の取得に失敗しました: HTTP ${response.statusCode}');
     }
   }
 

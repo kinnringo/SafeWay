@@ -6,6 +6,7 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:pointer_interceptor/pointer_interceptor.dart';
 import '../providers/image_provider.dart';
 import '../providers/hazard_provider.dart';
+import '../providers/coverage_provider.dart';
 import '../providers/map_theme_provider.dart';
 import '../core/theme.dart';
 import '../core/map_styles.dart';
@@ -13,6 +14,7 @@ import '../widgets/image_preview_card.dart';
 import '../widgets/action_buttons.dart';
 import '../widgets/search_bar_widget.dart';
 import '../widgets/post_bottom_sheet.dart';
+import '../utils/marker_helper.dart';
 import '../widgets/place_info_sheet.dart';
 import '../models/route_models.dart';
 import '../services/api_service.dart';
@@ -46,6 +48,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
 
   /// ハザード情報表示用のマーカー
   Set<Marker> _hazardMarkers = {};
+  BitmapDescriptor? _bearMarkerIcon;
 
   /// ルート描画用のポリラインセット
   Set<Polyline> _polylines = {};
@@ -312,6 +315,81 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   // ハザード情報関連
   // ─────────────────────────────────────────────────────────────────────
 
+  Future<void> _onCameraIdle() async {
+    // 既存のハザード情報再取得
+    _fetchHazards();
+
+    // カバレッジ情報の再取得
+    final coverageState = ref.read(coverageProvider);
+    if (coverageState.isVisible && _mapController != null) {
+      final zoom = await _mapController!.getZoomLevel();
+      if (zoom >= 10.0) {
+        final bounds = await _mapController!.getVisibleRegion();
+        ref.read(coverageProvider.notifier).fetchCoverage(
+              minLat: bounds.southwest.latitude,
+              minLng: bounds.southwest.longitude,
+              maxLat: bounds.northeast.latitude,
+              maxLng: bounds.northeast.longitude,
+              zoom: zoom,
+            );
+      }
+    }
+  }
+
+  Set<Polygon> _buildCoveragePolygons(CoverageState coverageState) {
+    if (!coverageState.isVisible) return {};
+    
+    final Set<Polygon> polygons = {};
+    final List<List<LatLng>> holes = [];
+    final cellSize = coverageState.cellSize;
+    
+    for (final cell in coverageState.cells) {
+      final sw = LatLng(cell.lat, cell.lng);
+      final nw = LatLng(cell.lat + cellSize, cell.lng);
+      final ne = LatLng(cell.lat + cellSize, cell.lng + cellSize);
+      final se = LatLng(cell.lat, cell.lng + cellSize);
+      holes.add([sw, nw, ne, se]);
+    }
+
+    // 1. 巨大背景ポリゴン（地球全体）
+    polygons.add(
+      Polygon(
+        polygonId: const PolygonId('coverage_background'),
+        points: const [
+          LatLng(90, -180),
+          LatLng(90, 180),
+          LatLng(-90, 180),
+          LatLng(-90, -180),
+        ],
+        holes: holes,
+        fillColor: Colors.grey.withValues(alpha: 0.5),
+        strokeWidth: 0,
+      ),
+    );
+
+    // 2. データセルポリゴン（緑色）
+    for (int i = 0; i < coverageState.cells.length; i++) {
+      final cell = coverageState.cells[i];
+      final sw = LatLng(cell.lat, cell.lng);
+      final nw = LatLng(cell.lat + cellSize, cell.lng);
+      final ne = LatLng(cell.lat + cellSize, cell.lng + cellSize);
+      final se = LatLng(cell.lat, cell.lng + cellSize);
+      
+      final opacity = (0.2 + cell.count * 0.1).clamp(0.2, 0.8);
+      
+      polygons.add(
+        Polygon(
+          polygonId: PolygonId('coverage_cell_$i'),
+          points: [sw, nw, ne, se],
+          fillColor: Colors.green.withValues(alpha: opacity),
+          strokeWidth: 0,
+        ),
+      );
+    }
+    
+    return polygons;
+  }
+
   /// 周辺のハザード情報を取得してマーカーを更新
   Future<void> _fetchHazards() async {
     final hazardState = ref.read(hazardProvider);
@@ -353,14 +431,21 @@ class _MapScreenState extends ConsumerState<MapScreen> {
 
   /// ハザード情報からマーカーを生成
   Marker _createHazardMarker(HazardPoint hazard) {
-    final isBear = hazard.eventType == 'wildlife';
+    debugPrint('Hazard Info - type: ${hazard.sourceType}, label: ${hazard.label}');
+    
+    final isBear = hazard.sourceType.toLowerCase() == 'bear' ||
+                   (hazard.label?.toLowerCase().contains('bear') ?? false) ||
+                   (hazard.label?.contains('クマ') ?? false) ||
+                   (hazard.label?.contains('熊') ?? false);
+
     return Marker(
       markerId: MarkerId('hazard_${hazard.id}'),
       position: LatLng(hazard.lat, hazard.lng),
-      // TODO: 将来的にアセット画像に差し替え (isBear ? BitmapDescriptor.fromAssetImage(...) : ...)
-      icon: BitmapDescriptor.defaultMarkerWithHue(
-        isBear ? BitmapDescriptor.hueOrange : BitmapDescriptor.hueYellow,
-      ),
+      icon: (isBear && _bearMarkerIcon != null)
+          ? _bearMarkerIcon!
+          : BitmapDescriptor.defaultMarkerWithHue(
+              isBear ? BitmapDescriptor.hueOrange : BitmapDescriptor.hueYellow,
+            ),
       onTap: () => _showHazardDetailsSheet(hazard),
     );
   }
@@ -558,6 +643,21 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   void initState() {
     super.initState();
     _initLocationTracking();
+    _loadCustomMarkers();
+  }
+
+  Future<void> _loadCustomMarkers() async {
+    final icon = await createBearMarker();
+    if (mounted) {
+      setState(() {
+        _bearMarkerIcon = icon;
+      });
+      
+      // アイコン生成後にすでにハザードマーカーが存在していれば、アイコンを適用するために再描画（または再取得）する
+      if (_hazardMarkers.isNotEmpty) {
+        _fetchHazards();
+      }
+    }
   }
 
   Future<void> _initLocationTracking() async {
@@ -1034,6 +1134,8 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   Widget build(BuildContext context) {
     final isDarkTheme = ref.watch(mapThemeProvider);
     final imageState = ref.watch(selectedImageProvider);
+    final coverageState = ref.watch(coverageProvider);
+    final coveragePolygons = _buildCoveragePolygons(coverageState);
 
     return Scaffold(
       // ナビ中は AppBar を非表示
@@ -1117,7 +1219,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
               // onPoiTap: google_maps_flutter 2.17.x 時点で公開なし。
               // POI情報は長押し（onLongPress）経由で全て対応する。
               onLongPress: _onLongPress,
-              onCameraIdle: _fetchHazards,
+              onCameraIdle: _onCameraIdle,
               onCameraMove: (CameraPosition position) {
                 // ズームが 14.5 を境に変化した場合のみ setState して再描画
                 final newZoom = position.zoom;
@@ -1141,6 +1243,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                 }
               },
               markers: {..._markers, ..._hazardMarkers},
+              polygons: coveragePolygons,
               polylines: _polylines,
               myLocationEnabled: true,
               myLocationButtonEnabled: false,
@@ -1197,6 +1300,52 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                           tooltip: 'ハザード情報の表示 (長押しで設定)',
                           child: const Icon(Icons.warning_amber),
                         ),
+                      );
+                    },
+                  ),
+                ),
+              ),
+            ),
+            // カバレッジ情報ボタン
+            Positioned(
+              left: 16,
+              top: 200, // ハザードボタンの下
+              child: SafeArea(
+                child: PointerInterceptor(
+                  child: Consumer(
+                    builder: (context, ref, child) {
+                      final coverageState = ref.watch(coverageProvider);
+                      return FloatingActionButton(
+                        heroTag: 'coverageToggleBtn',
+                        onPressed: () async {
+                          final notifier = ref.read(coverageProvider.notifier);
+                          notifier.toggleVisibility();
+                          final newState = ref.read(coverageProvider);
+                          if (newState.isVisible && _mapController != null) {
+                            final zoom = await _mapController!.getZoomLevel();
+                            if (zoom >= 10.0) {
+                              final bounds = await _mapController!.getVisibleRegion();
+                              notifier.fetchCoverage(
+                                minLat: bounds.southwest.latitude,
+                                minLng: bounds.southwest.longitude,
+                                maxLat: bounds.northeast.latitude,
+                                maxLng: bounds.northeast.longitude,
+                                zoom: zoom,
+                              );
+                            } else {
+                              if (context.mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(content: Text('カバレッジを表示するにはズームインしてください')),
+                                );
+                              }
+                            }
+                          }
+                        },
+                        backgroundColor: coverageState.isVisible ? Colors.green.shade600 : Colors.grey.shade400,
+                        foregroundColor: Colors.white,
+                        mini: true,
+                        tooltip: '情報空白地帯の可視化',
+                        child: const Icon(Icons.layers),
                       );
                     },
                   ),
