@@ -7,6 +7,7 @@ import 'package:pointer_interceptor/pointer_interceptor.dart';
 import '../core/theme.dart';
 import '../services/api_service.dart';
 import '../providers/map_theme_provider.dart';
+import '../screens/my_page_screen.dart';
 
 /// 場所・住所の検索結果
 class PlaceResult {
@@ -395,17 +396,32 @@ class _MapSearchBarState extends ConsumerState<MapSearchBar> {
                           ),
                         )
                       : Icon(Icons.search, color: iconColor),
-                  suffixIcon: _searchController.text.isNotEmpty
-                      ? IconButton(
+                  suffixIcon: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (_searchController.text.isNotEmpty)
+                        IconButton(
                           icon: const Icon(Icons.clear, color: Colors.grey),
                           onPressed: () {
                             _searchController.clear();
-                            // クリア時はキャッシュも完全に破棄する
                             _lastResults.clear();
                             _hideOverlay();
                           },
-                        )
-                      : null,
+                        ),
+                      IconButton(
+                        icon: Icon(Icons.account_circle, color: iconColor, size: 28),
+                        onPressed: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => const MyPageScreen(),
+                            ),
+                          );
+                        },
+                      ),
+                      const SizedBox(width: 4),
+                    ],
+                  ),
                   border: InputBorder.none,
                   contentPadding: const EdgeInsets.symmetric(
                     horizontal: 16,
