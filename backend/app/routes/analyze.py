@@ -40,6 +40,7 @@ from app.services.detection import detect_objects
 from app.services.exif_reader import extract_from_image
 from app.services.geo_estimation import estimate_object_position, focal_length_mm_to_px
 from app.services.scoring import update_edge_scores_near_point
+from app.services.coverage import update_coverage_cells
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -245,6 +246,10 @@ async def analyze_image(
                 updated_at=datetime.utcnow()
             )
             db.add(db_safety_point)
+
+        # カバレッジセル（情報空白地帯可視化用）の更新
+        update_coverage_cells(db, obj_lat, obj_lng)
+
 
         detection_results.append(
             DetectionResult(

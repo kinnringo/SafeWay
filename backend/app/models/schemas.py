@@ -153,3 +153,25 @@ class HazardsResponse(BaseModel):
 
     points: list[HazardPoint] = Field(..., description="ハザードポイントのリスト")
     count: int = Field(..., description="返却されたポイント数")
+
+
+# ---------------------------------------------------------------------------
+# カバレッジ情報（情報空白地帯可視化用）
+# ---------------------------------------------------------------------------
+
+
+class CoverageCellResponse(BaseModel):
+    """1つのグリッドセルの情報密度"""
+
+    lat: float = Field(..., description="セル南端の緯度")
+    lng: float = Field(..., description="セル西端の経度")
+    count: int = Field(..., description="セル内の SafetyPoint 数")
+
+
+class CoverageResponse(BaseModel):
+    """カバレッジ情報レスポンス"""
+
+    cells: list[CoverageCellResponse] = Field(..., description="データが存在するセルのリスト")
+    cell_size: float = Field(..., description="セルサイズ（度）")
+    total_cells: int = Field(..., description="返却されたセル数")
+

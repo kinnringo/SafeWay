@@ -1,5 +1,5 @@
 from datetime import datetime
-from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, Boolean, BigInteger
+from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, Boolean, BigInteger, UniqueConstraint
 from sqlalchemy.orm import relationship
 from geoalchemy2 import Geometry
 from app.core.database import Base
@@ -98,3 +98,26 @@ class Edge(Base):
     dynamic_safety_score = Column(Float, default=0.0, nullable=False)
     safety_score = Column(Float, default=0.5, nullable=False)
     routing_cost = Column(Float, nullable=True)
+
+
+class CoverageCell(Base):
+    """情報空白地帯可視化用の事前集計テーブル
+
+    グリッドセルごとに SafetyPoint の件数を保持する。
+    SafetyPoint が追加されるたびにインクリメンタルに更新される。
+    フロントからの GET /api/coverage では、このテーブルを参照するだけで
+    データ量に依存しない高速なレスポンスを実現する。
+    """
+    __tablename__ = "coverage_cells"
+
+    id = Column(Integer, primary_key=True, index=True)
+    cell_lat = Column(Float, nullable=False)      # セル南端の緯度（丸め値）
+    cell_lng = Column(Float, nullable=False)       # セル西端の経度（丸め値）
+    cell_size = Column(Float, nullable=False)      # セルサイズ（度）
+    point_count = Column(Integer, default=0, nullable=False)  # セル内の SafetyPoint 数
+    geom = Column(Geometry(geometry_type='POLYGON', srid=4326), nullable=True)  # セルのポリゴン（空間検索用）
+
+    __table_args__ = (
+        UniqueConstraint('cell_lat', 'cell_lng', 'cell_size', name='uix_coverage_cell'),
+    )
+
