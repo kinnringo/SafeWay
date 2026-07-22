@@ -21,6 +21,9 @@ backend/data/*.graphml
 backend/data/*.osm
 backend/cache
 
+# Backend test
+backend/scratch
+
 # Flutter
 frontend/.dart_tool/
 frontend/.packages
