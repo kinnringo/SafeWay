@@ -145,6 +145,9 @@ class HazardPoint(BaseModel):
     confidence: Optional[float] = Field(
         None, description="YOLO の信頼度。source_type が detection の場合のみ"
     )
+    event_type: Optional[str] = Field(
+        None, description="イベント種別（bear 等）。source_type が crime_report の場合のみ"
+    )
     updated_at: datetime = Field(..., description="最終更新日時")
 
 

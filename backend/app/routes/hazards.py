@@ -12,7 +12,7 @@ from sqlalchemy import and_
 from sqlalchemy.orm import Session, joinedload
 
 from app.core.database import get_db
-from app.models.db_models import Detection, SafetyPoint
+from app.models.db_models import Detection, SafetyPoint, CrimeReport
 from app.models.schemas import HazardPoint, HazardsResponse
 
 logger = logging.getLogger(__name__)
@@ -35,10 +35,13 @@ def get_hazards(
     - source_type が指定された場合、その種別のポイントのみ返す。
     - is_visible=False のポイントは常に除外する。
     """
-    # ベースクエリ: is_visible=True のみ、detection を事前ロード
+    # ベースクエリ: is_visible=True のみ、detection と crime_report を事前ロード
     query = (
         db.query(SafetyPoint)
-        .options(joinedload(SafetyPoint.detection))
+        .options(
+            joinedload(SafetyPoint.detection),
+            joinedload(SafetyPoint.crime_report)
+        )
         .filter(SafetyPoint.is_visible == True)
     )
 
@@ -75,6 +78,11 @@ def get_hazards(
             label = sp.detection.label
             confidence = sp.detection.confidence
 
+        # crime_report から event_type を取得
+        event_type = None
+        if sp.crime_report is not None:
+            event_type = sp.crime_report.event_type
+
         results.append(
             HazardPoint(
                 id=sp.id,
@@ -84,6 +92,7 @@ def get_hazards(
                 score_modifier=sp.score_modifier,
                 label=label,
                 confidence=confidence,
+                event_type=event_type,
                 updated_at=sp.updated_at,
             )
         )

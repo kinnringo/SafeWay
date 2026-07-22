@@ -370,6 +370,7 @@ OSM道路ネットワーク（新潟県・群馬県）と pgRouting エンジン
 | `score_modifier` | float | 安全スコアへの影響値（正=安全、負=危険） |
 | `label` | string? | 検出ラベル（`streetlight` 等）。`source_type` が `detection` の場合のみ |
 | `confidence` | float? | YOLO の信頼度。`source_type` が `detection` の場合のみ |
+| `event_type` | string? | イベント種別（`bear` 等）。`source_type` が `crime_report` の場合のみ |
 | `updated_at` | datetime | 最終更新日時 |
 
 ### レスポンス例
@@ -385,6 +386,7 @@ OSM道路ネットワーク（新潟県・群馬県）と pgRouting エンジン
       "score_modifier": 0.1,
       "label": "streetlight",
       "confidence": 0.95,
+      "event_type": null,
       "updated_at": "2026-06-17T05:29:22.035039"
     }
   ],
