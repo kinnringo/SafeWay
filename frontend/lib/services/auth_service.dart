@@ -1,4 +1,4 @@
-﻿import 'dart:convert';
+import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
@@ -103,7 +103,7 @@ class AuthService {
   }
 
   /// 現在のユーザー情報を取得: GET /api/auth/me
-  Future<String?> getCurrentUser(String token) async {
+  Future<Map<String, dynamic>?> getCurrentUser(String token) async {
     final uri = Uri.parse('${ApiService.baseUrl}/auth/me');
     try {
       final response = await http
@@ -115,7 +115,7 @@ class AuthService {
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body) as Map<String, dynamic>;
-        return data['username'] as String?;
+        return data;
       }
       return null;
     } catch (e) {
@@ -148,9 +148,9 @@ class AuthNotifier extends StateNotifier<AuthState> {
       state = const AuthState.unauthenticated();
       return;
     }
-    final username = await _service.getCurrentUser(token);
-    if (username != null) {
-      state = AuthState.authenticated(username: username, token: token);
+    final userData = await _service.getCurrentUser(token);
+    if (userData != null && userData['username'] != null) {
+      state = AuthState.authenticated(username: userData['username'] as String, token: token);
     } else {
       await _service.clearToken();
       state = const AuthState.unauthenticated();
