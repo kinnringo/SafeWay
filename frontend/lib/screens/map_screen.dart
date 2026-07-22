@@ -342,17 +342,8 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     if (!coverageState.isVisible) return {};
     
     final Set<Polygon> polygons = {};
-    final List<List<LatLng>> holes = [];
     final cellSize = coverageState.cellSize;
     
-    for (final cell in coverageState.cells) {
-      final sw = LatLng(cell.lat, cell.lng);
-      final nw = LatLng(cell.lat + cellSize, cell.lng);
-      final ne = LatLng(cell.lat + cellSize, cell.lng + cellSize);
-      final se = LatLng(cell.lat, cell.lng + cellSize);
-      holes.add([sw, nw, ne, se]);
-    }
-
     // 1. 巨大背景ポリゴン（地球全体）
     polygons.add(
       Polygon(
@@ -363,9 +354,9 @@ class _MapScreenState extends ConsumerState<MapScreen> {
           LatLng(-90, 180),
           LatLng(-90, -180),
         ],
-        holes: holes,
         fillColor: Colors.grey.withValues(alpha: 0.5),
         strokeWidth: 0,
+        zIndex: 1,
       ),
     );
 
@@ -385,6 +376,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
           points: [sw, nw, ne, se],
           fillColor: Colors.green.withValues(alpha: opacity),
           strokeWidth: 0,
+          zIndex: 2,
         ),
       );
     }
@@ -681,65 +673,78 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   }
 
   Future<void> _initLocationTracking() async {
-    bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
-    if (!serviceEnabled) return;
-
-    LocationPermission permission = await Geolocator.checkPermission();
-    if (permission == LocationPermission.denied) {
-      permission = await Geolocator.requestPermission();
-      if (permission == LocationPermission.denied) return;
-    }
-    if (permission == LocationPermission.deniedForever) return;
-
-    // 初回の現在地を取得
     try {
-      final pos = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high,
+      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) return;
+
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+        if (permission == LocationPermission.denied) return;
+      }
+      if (permission == LocationPermission.deniedForever) return;
+
+      // 初回の現在地を取得
+      try {
+        final pos = await Geolocator.getCurrentPosition(
+          desiredAccuracy: LocationAccuracy.high,
+        );
+        if (mounted) {
+          setState(() {
+            _currentPosition = LatLng(pos.latitude, pos.longitude);
+            _isLoadingGps = false;
+          });
+          if (!_hasMovedToCurrentLocation) {
+            _mapController?.animateCamera(
+              CameraUpdate.newLatLngZoom(_currentPosition!, 15.0),
+            );
+            _hasMovedToCurrentLocation = true;
+          }
+        }
+      } catch (e) {
+        // 初期取得失敗時はストリームへ
+        debugPrint('Initial location fetch failed: $e');
+      }
+
+      // ストリームで継続的な追従（10メートル以上動いた時だけ更新）
+      _positionStream = Geolocator.getPositionStream(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+          distanceFilter: 10,
+        ),
+      ).listen(
+        (Position position) {
+          if (mounted) {
+            setState(() {
+              _currentPosition = LatLng(position.latitude, position.longitude);
+              _isLoadingGps = false;
+            });
+
+            if (!_hasMovedToCurrentLocation) {
+              _mapController?.animateCamera(
+                CameraUpdate.newLatLngZoom(_currentPosition!, 15.0),
+              );
+              _hasMovedToCurrentLocation = true;
+            }
+
+            // ナビ中はカメラが現在地を追従
+            if (_isNavigating) {
+              _mapController?.animateCamera(
+                CameraUpdate.newLatLng(_currentPosition!),
+              );
+            }
+          }
+        },
+        onError: (error) {
+          debugPrint('Location stream error: $error');
+        },
       );
-      if (mounted) {
-        setState(() {
-          _currentPosition = LatLng(pos.latitude, pos.longitude);
-          _isLoadingGps = false;
-        });
-        if (!_hasMovedToCurrentLocation) {
-          _mapController?.animateCamera(
-            CameraUpdate.newLatLngZoom(_currentPosition!, 15.0),
-          );
-          _hasMovedToCurrentLocation = true;
-        }
-      }
     } catch (e) {
-      // 初期取得失敗時はストリームへ
-    }
-
-    // ストリームで継続的な追従（10メートル以上動いた時だけ更新）
-    _positionStream = Geolocator.getPositionStream(
-      locationSettings: const LocationSettings(
-        accuracy: LocationAccuracy.high,
-        distanceFilter: 10,
-      ),
-    ).listen((Position position) {
+      debugPrint('Location tracking init error: $e');
       if (mounted) {
-        setState(() {
-          _currentPosition = LatLng(position.latitude, position.longitude);
-          _isLoadingGps = false;
-        });
-
-        if (!_hasMovedToCurrentLocation) {
-          _mapController?.animateCamera(
-            CameraUpdate.newLatLngZoom(_currentPosition!, 15.0),
-          );
-          _hasMovedToCurrentLocation = true;
-        }
-
-        // ナビ中はカメラが現在地を追従
-        if (_isNavigating) {
-          _mapController?.animateCamera(
-            CameraUpdate.newLatLng(_currentPosition!),
-          );
-        }
+        setState(() => _isLoadingGps = false);
       }
-    });
+    }
   }
 
 
