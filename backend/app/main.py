@@ -1,5 +1,10 @@
 """SafeWay Backend - FastAPI エントリーポイント"""
 
+import sys
+from unittest.mock import MagicMock
+sys.modules['matplotlib'] = MagicMock()
+sys.modules['matplotlib.pyplot'] = MagicMock()
+
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware

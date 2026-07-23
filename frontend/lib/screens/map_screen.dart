@@ -1105,14 +1105,13 @@ class _MapScreenState extends ConsumerState<MapScreen> {
             final textColor = isDarkTheme ? AppColors.darkTextPrimary : Colors.black87;
 
             return PointerInterceptor(
-              child: Container(
-                padding: const EdgeInsets.all(20),
-                decoration: BoxDecoration(
-                  color: bgColor,
-                  borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-                ),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
+              child: Material(
+                color: bgColor,
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+                child: Padding(
+                  padding: const EdgeInsets.all(20),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
                   children: [
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -1148,7 +1147,8 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                   ],
                 ),
               ),
-            );
+            ),
+          );
           },
         );
       },
@@ -1163,6 +1163,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     final coveragePolygons = _buildCoveragePolygons(coverageState);
 
     return Scaffold(
+      resizeToAvoidBottomInset: false,
       // ナビ中は AppBar を非表示
       appBar: _isNavigating
           ? null
