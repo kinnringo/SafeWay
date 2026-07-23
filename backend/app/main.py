@@ -25,6 +25,11 @@ def init_db():
         
         # テーブルを作成
         Base.metadata.create_all(bind=engine)
+        
+        # カバレッジ更新用トリガーを作成
+        from app.core.db_triggers import setup_triggers
+        setup_triggers(engine)
+        
         print("Database initialized successfully.")
     except Exception as e:
         print(f"Error initializing database: {e}")

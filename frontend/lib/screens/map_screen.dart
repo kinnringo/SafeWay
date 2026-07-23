@@ -325,7 +325,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     final coverageState = ref.read(coverageProvider);
     if (coverageState.isVisible && _mapController != null) {
       final zoom = await _mapController!.getZoomLevel();
-      if (zoom >= 10.0) {
+      if (zoom >= 8.0) {
         final bounds = await _mapController!.getVisibleRegion();
         ref.read(coverageProvider.notifier).fetchCoverage(
               minLat: bounds.southwest.latitude,
@@ -341,24 +341,63 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   Set<Polygon> _buildCoveragePolygons(CoverageState coverageState) {
     if (!coverageState.isVisible) return {};
     
+    debugPrint('Coverage Cells to draw: ${coverageState.cells.length}');
+    
     final Set<Polygon> polygons = {};
     final cellSize = coverageState.cellSize;
     
-    // 1. 巨大背景ポリゴン（地球全体）
-    polygons.add(
+    // 1. 背景ポリゴン（地球全体を4分割）
+    final bgColor = Colors.grey.withValues(alpha: 0.5);
+    polygons.addAll([
       Polygon(
-        polygonId: const PolygonId('coverage_background'),
+        polygonId: const PolygonId('coverage_bg_nw'),
         points: const [
-          LatLng(90, -180),
-          LatLng(90, 180),
-          LatLng(-90, 180),
-          LatLng(-90, -180),
+          LatLng(89.9, -179.9),
+          LatLng(89.9, 0),
+          LatLng(0, 0),
+          LatLng(0, -179.9),
         ],
-        fillColor: Colors.grey.withValues(alpha: 0.5),
+        fillColor: bgColor,
         strokeWidth: 0,
-        zIndex: 1,
+        zIndex: 0,
       ),
-    );
+      Polygon(
+        polygonId: const PolygonId('coverage_bg_ne'),
+        points: const [
+          LatLng(89.9, 0),
+          LatLng(89.9, 179.9),
+          LatLng(0, 179.9),
+          LatLng(0, 0),
+        ],
+        fillColor: bgColor,
+        strokeWidth: 0,
+        zIndex: 0,
+      ),
+      Polygon(
+        polygonId: const PolygonId('coverage_bg_sw'),
+        points: const [
+          LatLng(0, -179.9),
+          LatLng(0, 0),
+          LatLng(-89.9, 0),
+          LatLng(-89.9, -179.9),
+        ],
+        fillColor: bgColor,
+        strokeWidth: 0,
+        zIndex: 0,
+      ),
+      Polygon(
+        polygonId: const PolygonId('coverage_bg_se'),
+        points: const [
+          LatLng(0, 0),
+          LatLng(0, 179.9),
+          LatLng(-89.9, 179.9),
+          LatLng(-89.9, 0),
+        ],
+        fillColor: bgColor,
+        strokeWidth: 0,
+        zIndex: 0,
+      ),
+    ]);
 
     // 2. データセルポリゴン（緑色）
     for (int i = 0; i < coverageState.cells.length; i++) {
@@ -368,15 +407,22 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       final ne = LatLng(cell.lat + cellSize, cell.lng + cellSize);
       final se = LatLng(cell.lat, cell.lng + cellSize);
       
-      final opacity = (0.2 + cell.count * 0.1).clamp(0.2, 0.8);
+      Color cellColor;
+      if (cell.count <= 2) {
+        cellColor = Colors.lightGreen.withValues(alpha: 0.4);
+      } else if (cell.count <= 4) {
+        cellColor = Colors.green.withValues(alpha: 0.6);
+      } else {
+        cellColor = Colors.green[800]!.withValues(alpha: 0.8);
+      }
       
       polygons.add(
         Polygon(
           polygonId: PolygonId('coverage_cell_$i'),
           points: [sw, nw, ne, se],
-          fillColor: Colors.green.withValues(alpha: opacity),
+          fillColor: cellColor,
           strokeWidth: 0,
-          zIndex: 2,
+          zIndex: 10,
         ),
       );
     }
@@ -452,7 +498,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       icon: (isBear && bearIcon != null)
           ? bearIcon
           : BitmapDescriptor.defaultMarkerWithHue(
-              isBear ? BitmapDescriptor.hueOrange : BitmapDescriptor.hueYellow,
+              isBear ? BitmapDescriptor.hueOrange : BitmapDescriptor.hueRed,
             ),
       onTap: () => _showHazardDetailsSheet(hazard),
     );
@@ -1344,7 +1390,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                           final newState = ref.read(coverageProvider);
                           if (newState.isVisible && _mapController != null) {
                             final zoom = await _mapController!.getZoomLevel();
-                            if (zoom >= 10.0) {
+                            if (zoom >= 8.0) {
                               final bounds = await _mapController!.getVisibleRegion();
                               notifier.fetchCoverage(
                                 minLat: bounds.southwest.latitude,
