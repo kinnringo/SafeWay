@@ -66,7 +66,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   bool _isSuggestionsVisible = false;
 
   /// 選択中のルート種別（比較カードでユーザーが選択）
-  _RouteType _selectedRouteType = _RouteType.safe;
+  _RouteType? _selectedRouteType;
 
   /// ナビ案内中フラグ
   bool _isNavigating = false;
@@ -108,48 +108,63 @@ class _MapScreenState extends ConsumerState<MapScreen> {
 
   /// ルートのポリラインを生成して地図に反映する
   void _updateRoutePolylines(RouteResponse response) {
+    _currentRouteResponse = response;
+    _selectedRouteType = null; // 初期値は未選択（両方表示）
+    _refreshPolylines();
+  }
+
+  /// 選択状態に応じてポリラインを再生成する
+  void _refreshPolylines() {
+    if (_currentRouteResponse == null) return;
+    final response = _currentRouteResponse!;
     final Set<Polyline> newPolylines = {};
 
-    // 1. 安全優先ルート: 区間ごとにループして safety_score で色分け
-    for (var i = 0; i < response.safeRoute.features.length; i++) {
-      final feature = response.safeRoute.features[i];
-      if (feature.points.length < 2) continue;
-      newPolylines.add(
-        Polyline(
-          polylineId: PolylineId('safe_route_segment_$i'),
-          points: feature.points,
-          color: _safetyScoreToColor(feature.safetyScore),
-          width: 6,
-          zIndex: 10,
-          startCap: Cap.roundCap,
-          endCap: Cap.roundCap,
-          jointType: JointType.round,
-        ),
-      );
+    // 1. 安全優先ルート
+    if (_selectedRouteType == null || _selectedRouteType == _RouteType.safe) {
+      for (var i = 0; i < response.safeRoute.features.length; i++) {
+        final feature = response.safeRoute.features[i];
+        if (feature.points.length < 2) continue;
+        newPolylines.add(
+          Polyline(
+            polylineId: PolylineId('safe_route_segment_$i'),
+            points: feature.points,
+            color: _safetyScoreToColor(feature.safetyScore),
+            width: 6,
+            zIndex: 10,
+            startCap: Cap.roundCap,
+            endCap: Cap.roundCap,
+            jointType: JointType.round,
+          ),
+        );
+      }
     }
 
-    // 2. 最短距離ルート: 区間ごとにループして safety_score で色分け
-    for (var i = 0; i < response.shortestRoute.features.length; i++) {
-      final feature = response.shortestRoute.features[i];
-      if (feature.points.length < 2) continue;
-      newPolylines.add(
-        Polyline(
-          polylineId: PolylineId('shortest_route_segment_$i'),
-          points: feature.points,
-          color: _safetyScoreToColor(feature.safetyScore),
-          width: 4,
-          zIndex: 5,
-          startCap: Cap.roundCap,
-          endCap: Cap.roundCap,
-          jointType: JointType.round,
-        ),
-      );
+    // 2. 最短距離ルート
+    if (_selectedRouteType == null || _selectedRouteType == _RouteType.shortest) {
+      for (var i = 0; i < response.shortestRoute.features.length; i++) {
+        final feature = response.shortestRoute.features[i];
+        if (feature.points.length < 2) continue;
+        newPolylines.add(
+          Polyline(
+            polylineId: PolylineId('shortest_route_segment_$i'),
+            points: feature.points,
+            // 未選択時（両方表示）は青の半透明で区別、単独表示時はスコア色
+            color: _selectedRouteType == null
+                ? Colors.blue.withValues(alpha: 0.7)
+                : _safetyScoreToColor(feature.safetyScore),
+            // 未選択時は少し細め
+            width: _selectedRouteType == null ? 4 : 6,
+            zIndex: _selectedRouteType == null ? 5 : 10,
+            startCap: Cap.roundCap,
+            endCap: Cap.roundCap,
+            jointType: JointType.round,
+          ),
+        );
+      }
     }
 
     setState(() {
-      _currentRouteResponse = response;
       _polylines = newPolylines;
-      _selectedRouteType = _RouteType.safe;
     });
   }
 
@@ -265,7 +280,13 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       return;
     }
 
-    setState(() => _isNavigating = true);
+    setState(() {
+      if (_selectedRouteType == null) {
+        _selectedRouteType = _RouteType.safe; // デフォルトは安全優先
+        _refreshPolylines();
+      }
+      _isNavigating = true;
+    });
 
     _mapController?.animateCamera(
       CameraUpdate.newLatLngZoom(_currentPosition!, 17.0),
@@ -305,7 +326,9 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       tappedPoint: point,
       placeId: placeId,
       onRouteRequested: (LatLng destination, String destinationName) {
-        if (_currentPosition == null) {
+        // 1. 現在地チェック（出発地が未設定、かつGPSも未取得の場合のブロック）
+        final effectiveStart = _originLocation ?? _currentPosition;
+        if (effectiveStart == null) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
               content: Text('現在地が取得できていません。GPS を確認してください。'),
@@ -314,15 +337,21 @@ class _MapScreenState extends ConsumerState<MapScreen> {
           return;
         }
 
+        // 2. 状態の更新（既存の出発地があれば維持する）
         setState(() {
+          if (!_isRoutePlanning) {
+            // 新規でルート検索を始める場合のみ、出発地をクリア（現在地）にする
+            _originLocation = null;
+            _originName = null;
+          }
           _isRoutePlanning = true;
           _destinationLocation = destination;
           _destinationName = destinationName;
-          _originLocation = null; // デフォルトは現在地
-          _originName = null;
         });
 
-        fetchAndDrawRoute(start: _currentPosition!, end: destination);
+        // 3. ルート再検索（維持された出発地、または現在地を使用）
+        final startPoint = _originLocation ?? _currentPosition!;
+        fetchAndDrawRoute(start: startPoint, end: destination);
       },
     ).then((_) {
       if (mounted) {
@@ -1124,7 +1153,16 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     final bool isSelected = _selectedRouteType == routeType;
 
     return GestureDetector(
-      onTap: () => setState(() => _selectedRouteType = routeType),
+      onTap: () {
+        setState(() {
+          if (_selectedRouteType == routeType) {
+            _selectedRouteType = null;
+          } else {
+            _selectedRouteType = routeType;
+          }
+        });
+        _refreshPolylines();
+      },
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 180),
         padding:
