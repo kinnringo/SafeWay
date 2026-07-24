@@ -89,11 +89,15 @@ class AnalyzeResponse {
   /// 検出された各オブジェクトのリスト
   final List<Detection> detections;
 
+  /// 獲得したコイン
+  final int earnedCoins;
+
   const AnalyzeResponse({
     required this.userLat,
     required this.userLng,
     required this.updatedScore,
     required this.detections,
+    this.earnedCoins = 0,
   });
 
   factory AnalyzeResponse.fromJson(Map<String, dynamic> json) {
@@ -105,6 +109,7 @@ class AnalyzeResponse {
       detections: list
           .map((e) => Detection.fromJson(e as Map<String, dynamic>))
           .toList(),
+      earnedCoins: (json['earned_coins'] as num?)?.toInt() ?? 0,
     );
   }
 }

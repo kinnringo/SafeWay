@@ -42,11 +42,16 @@ class ApiService {
     required XFile imageFile,
     double? bearing,
     double? focalLength35mm,
+    String? token,
   }) async {
     final request = http.MultipartRequest(
       'POST',
       Uri.parse('$baseUrl/analyze'),
     );
+
+    if (token != null) {
+      request.headers['Authorization'] = 'Bearer $token';
+    }
 
     // 画像をバイトデータとして添付（Web・モバイル両対応）
     final bytes = await imageFile.readAsBytes();
@@ -75,11 +80,16 @@ class ApiService {
   /// EXIF が存在しない場合は position_accuracy: "low" になるがエラーにはならない。
   Future<AnalyzeResponse> analyzeImageGallery({
     required XFile imageFile,
+    String? token,
   }) async {
     final request = http.MultipartRequest(
       'POST',
       Uri.parse('$baseUrl/analyze'),
     );
+
+    if (token != null) {
+      request.headers['Authorization'] = 'Bearer $token';
+    }
 
     // 画像のみ送信（仕様書通り）
     final bytes = await imageFile.readAsBytes();

@@ -4,6 +4,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:flutter_compass/flutter_compass.dart';
 import '../models/analyze_result.dart';
 import '../services/api_service.dart';
+import '../services/auth_service.dart';
 
 class ImageAnalyzeState {
   final XFile? image;
@@ -38,9 +39,10 @@ class ImageAnalyzeState {
 
 class SelectedImageNotifier extends StateNotifier<ImageAnalyzeState> {
   final ApiService _apiService;
+  final String? _token;
   final ImagePicker _picker = ImagePicker();
 
-  SelectedImageNotifier(this._apiService) : super(const ImageAnalyzeState());
+  SelectedImageNotifier(this._apiService, this._token) : super(const ImageAnalyzeState());
 
   /// モードA: カメラで撮影してAPIに送信
   ///
@@ -69,6 +71,7 @@ class SelectedImageNotifier extends StateNotifier<ImageAnalyzeState> {
       final result = await _apiService.analyzeImageCamera(
         imageFile: image,
         bearing: bearing,
+        token: _token,
       );
 
       state = state.copyWith(isAnalyzing: false, analyzeResult: result);
@@ -98,7 +101,10 @@ class SelectedImageNotifier extends StateNotifier<ImageAnalyzeState> {
       );
 
       // モードB API呼び出し（画像のみ）
-      final result = await _apiService.analyzeImageGallery(imageFile: image);
+      final result = await _apiService.analyzeImageGallery(
+        imageFile: image,
+        token: _token,
+      );
       state = state.copyWith(isAnalyzing: false, analyzeResult: result);
     } catch (e) {
       state = state.copyWith(
@@ -128,5 +134,6 @@ class SelectedImageNotifier extends StateNotifier<ImageAnalyzeState> {
 final selectedImageProvider =
     StateNotifierProvider<SelectedImageNotifier, ImageAnalyzeState>((ref) {
   final apiService = ref.watch(apiServiceProvider);
-  return SelectedImageNotifier(apiService);
+  final token = ref.watch(authProvider).token;
+  return SelectedImageNotifier(apiService, token);
 });

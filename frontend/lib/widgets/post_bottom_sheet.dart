@@ -7,6 +7,7 @@ import 'dart:io' show File;
 import '../core/theme.dart';
 import '../providers/map_theme_provider.dart';
 import '../services/api_service.dart';
+import '../services/auth_service.dart';
 
 class PostBottomSheet extends ConsumerStatefulWidget {
   const PostBottomSheet({super.key});
@@ -130,9 +131,13 @@ class _PostBottomSheetState extends ConsumerState<PostBottomSheet> {
 
     try {
       // EXIF情報依存のモードB API呼び出し（現在地は送信しない）
+      final token = ref.read(authProvider).token;
       final result = await ref
           .read(apiServiceProvider)
-          .analyzeImageGallery(imageFile: _selectedImage!);
+          .analyzeImageGallery(
+            imageFile: _selectedImage!,
+            token: token,
+          );
 
       if (!mounted) return;
 
@@ -151,6 +156,22 @@ class _PostBottomSheetState extends ConsumerState<PostBottomSheet> {
           duration: const Duration(seconds: 3),
         ),
       );
+
+      // コイン獲得UIの追加
+      if (result.earnedCoins > 0) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Text('🎉 ', style: TextStyle(fontSize: 18)),
+                Text('+${result.earnedCoins} コイン獲得！', style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
+              ],
+            ),
+            backgroundColor: Colors.amber.shade700,
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      }
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
