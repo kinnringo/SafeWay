@@ -7,6 +7,7 @@ import '../core/theme.dart';
 import '../services/api_service.dart';
 import '../providers/map_theme_provider.dart';
 import 'package:pointer_interceptor/pointer_interceptor.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 /// 場所情報のデータモデル
 ///
@@ -603,25 +604,36 @@ class _PlaceInfoSheetState extends ConsumerState<_PlaceInfoSheet> {
           const SizedBox(height: 10),
         ],
 
-        // 公式ウェブサイト（リンク表示のみ。url_launcher 非依存）
+        // 公式ウェブサイト
         if (detail.website != null) ...[
-          Row(
-            children: [
-              const Icon(Icons.language_outlined,
-                  size: 16, color: Colors.grey),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  detail.website!,
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: isDark ? AppColors.blueAccentLight : Colors.blue,
-                    decoration: TextDecoration.underline,
+          InkWell(
+            onTap: () async {
+              final Uri url = Uri.parse(detail.website!);
+              if (await canLaunchUrl(url)) {
+                await launchUrl(url, mode: LaunchMode.externalApplication);
+              }
+            },
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4.0),
+              child: Row(
+                children: [
+                  const Icon(Icons.language_outlined,
+                      size: 16, color: Colors.grey),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      detail.website!,
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: isDark ? AppColors.blueAccentLight : Colors.blue,
+                        decoration: TextDecoration.underline,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ),
-                  overflow: TextOverflow.ellipsis,
-                ),
+                ],
               ),
-            ],
+            ),
           ),
           const SizedBox(height: 4),
         ],

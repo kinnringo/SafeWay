@@ -20,6 +20,7 @@ dependencies:
   flutter_compass: ^0.7.0
   pointer_interceptor: ^0.10.1
   shared_preferences: ^2.2.3
+  url_launcher: ^6.3.2
 
 dev_dependencies:
   flutter_test:
