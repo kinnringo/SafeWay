@@ -16,7 +16,6 @@ class PostBottomSheet extends ConsumerStatefulWidget {
 }
 
 class _PostBottomSheetState extends ConsumerState<PostBottomSheet> {
-  final TextEditingController _textController = TextEditingController();
   final ImagePicker _picker = ImagePicker();
   XFile? _selectedImage;
   bool _isPosting = false;
@@ -174,12 +173,6 @@ class _PostBottomSheetState extends ConsumerState<PostBottomSheet> {
   }
 
   @override
-  void dispose() {
-    _textController.dispose();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
     // キーボードが表示された際にボトムシートを押し上げるための余白
     final bottomPadding = MediaQuery.of(context).viewInsets.bottom;
@@ -188,8 +181,6 @@ class _PostBottomSheetState extends ConsumerState<PostBottomSheet> {
     final bgColor = isDark ? AppColors.darkSurface : Colors.white;
     final textColor =
         isDark ? AppColors.darkTextPrimary : AppColors.primaryNavy;
-    final hintColor =
-        isDark ? AppColors.darkTextSecondary : Colors.grey.shade400;
     final borderColor = isDark ? AppColors.darkBorder : Colors.grey.shade300;
     final photoBoxColor = isDark ? AppColors.darkCard : Colors.grey.shade50;
 
@@ -317,43 +308,6 @@ class _PostBottomSheetState extends ConsumerState<PostBottomSheet> {
                       ),
                     ],
                   ),
-                const SizedBox(height: 20),
-
-                // テキスト入力欄
-                TextField(
-                  controller: _textController,
-                  maxLines: 4,
-                  minLines: 3,
-                  enabled: !_isPosting,
-                  style: TextStyle(
-                    color: isDark ? AppColors.darkTextPrimary : Colors.black87,
-                  ),
-                  decoration: InputDecoration(
-                    hintText: '冠水、工事中、落とし物など、街の状況を詳しく教えてください...',
-                    hintStyle: TextStyle(color: hintColor),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide(color: borderColor),
-                    ),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide(color: borderColor),
-                    ),
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide(
-                          color: AppColors.blueAccentLight, width: 2),
-                    ),
-                    disabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide(
-                          color: borderColor.withValues(alpha: 0.5)),
-                    ),
-                    contentPadding: const EdgeInsets.all(16),
-                    fillColor: isDark ? AppColors.darkCard : null,
-                    filled: isDark,
-                  ),
-                ),
                 const SizedBox(height: 24),
 
                 // 投稿ボタン
