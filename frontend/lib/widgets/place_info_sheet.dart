@@ -62,7 +62,7 @@ Future<void> showPlaceInfoSheet({
   required BuildContext context,
   required LatLng tappedPoint,
   String? placeId,
-  void Function(LatLng destination)? onRouteRequested,
+  void Function(LatLng destination, String destinationName)? onRouteRequested,
 }) async {
   return showModalBottomSheet<void>(
     context: context,
@@ -81,7 +81,7 @@ Future<void> showPlaceInfoSheet({
 class _PlaceInfoSheet extends ConsumerStatefulWidget {
   final LatLng tappedPoint;
   final String? placeId;
-  final void Function(LatLng destination)? onRouteRequested;
+  final void Function(LatLng destination, String destinationName)? onRouteRequested;
 
   const _PlaceInfoSheet({
     required this.tappedPoint,
@@ -398,7 +398,7 @@ class _PlaceInfoSheetState extends ConsumerState<_PlaceInfoSheet> {
                     FilledButton.icon(
                       onPressed: () {
                         Navigator.pop(context);
-                        widget.onRouteRequested!(widget.tappedPoint);
+                        widget.onRouteRequested!(widget.tappedPoint, detail.name);
                       },
                       style: FilledButton.styleFrom(
                         backgroundColor: AppColors.primaryNavy,

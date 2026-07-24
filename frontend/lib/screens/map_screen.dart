@@ -16,6 +16,7 @@ import '../widgets/search_bar_widget.dart';
 import '../widgets/post_bottom_sheet.dart';
 import '../utils/marker_helper.dart';
 import '../widgets/place_info_sheet.dart';
+import '../widgets/origin_search_sheet.dart';
 import '../models/route_models.dart';
 import '../services/api_service.dart';
 
@@ -69,6 +70,15 @@ class _MapScreenState extends ConsumerState<MapScreen> {
 
   /// ナビ案内中フラグ
   bool _isNavigating = false;
+
+  // ─────────────────────────────────────────────────────────────────────
+  // ルート出発地（Origin）任意設定用状態
+  // ─────────────────────────────────────────────────────────────────────
+  bool _isRoutePlanning = false;
+  LatLng? _originLocation;
+  String? _originName;
+  LatLng? _destinationLocation;
+  String? _destinationName;
 
   /// ボトムシートが現在表示中かどうかを示すフラグ
   ///
@@ -232,6 +242,11 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       _polylines = {};
       _currentRouteResponse = null;
       _isNavigating = false;
+      _isRoutePlanning = false;
+      _originLocation = null;
+      _originName = null;
+      _destinationLocation = null;
+      _destinationName = null;
       _markers = {};
       _hazardMarkers = {};
     });
@@ -289,7 +304,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       context: context,
       tappedPoint: point,
       placeId: placeId,
-      onRouteRequested: (LatLng destination) {
+      onRouteRequested: (LatLng destination, String destinationName) {
         if (_currentPosition == null) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
@@ -298,6 +313,15 @@ class _MapScreenState extends ConsumerState<MapScreen> {
           );
           return;
         }
+
+        setState(() {
+          _isRoutePlanning = true;
+          _destinationLocation = destination;
+          _destinationName = destinationName;
+          _originLocation = null; // デフォルトは現在地
+          _originName = null;
+        });
+
         fetchAndDrawRoute(start: _currentPosition!, end: destination);
       },
     ).then((_) {
@@ -799,6 +823,156 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     _positionStream?.cancel();
     _mapController?.dispose();
     super.dispose();
+  }
+
+  // ─────────────────────────────────────────────────────────────────────
+  // UI: ルート設定カード
+  // ─────────────────────────────────────────────────────────────────────
+
+  void _showOriginSearchSheet() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) {
+        return const OriginSearchSheet();
+      },
+    ).then((result) {
+      if (result == null) return;
+      
+      setState(() {
+        if (result == 'CURRENT_LOCATION') {
+          _originLocation = null;
+          _originName = null;
+        } else if (result is PlaceResult) {
+          _originLocation = LatLng(result.lat, result.lng);
+          _originName = result.shortName;
+        }
+      });
+
+      if (_destinationLocation != null) {
+        final startPoint = _originLocation ?? _currentPosition;
+        if (startPoint != null) {
+          fetchAndDrawRoute(start: startPoint, end: _destinationLocation!);
+        } else {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('現在地が取得できていません。GPSを確認してください。')),
+            );
+          }
+        }
+      }
+    });
+  }
+
+  Widget _buildRoutePlanningCard() {
+    if (!_isRoutePlanning) return const SizedBox.shrink();
+
+    final isDark = ref.watch(mapThemeProvider);
+    final bgColor = isDark ? AppColors.darkSurface.withValues(alpha: 0.95) : Colors.white.withValues(alpha: 0.95);
+    final textColor = isDark ? AppColors.darkTextPrimary : Colors.black87;
+    final borderColor = isDark ? AppColors.darkBorder : Colors.grey.shade300;
+
+    return Positioned(
+      top: 0,
+      left: 0,
+      right: 0,
+      child: SafeArea(
+        bottom: false,
+        child: PointerInterceptor(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+            child: Card(
+              elevation: 4,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+              color: bgColor,
+              child: Padding(
+                padding: const EdgeInsets.all(12.0),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // ヘッダー（戻るボタン・タイトル）
+                    Row(
+                      children: [
+                        IconButton(
+                          icon: Icon(Icons.arrow_back, color: textColor),
+                          onPressed: _clearRoute,
+                          tooltip: 'ルート設定をキャンセル',
+                        ),
+                        Expanded(
+                          child: Text(
+                            'ルート設定',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              color: textColor,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    // 出発地
+                    GestureDetector(
+                      onTap: _showOriginSearchSheet,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                        decoration: BoxDecoration(
+                          border: Border.all(color: borderColor),
+                          borderRadius: BorderRadius.circular(8),
+                          color: isDark ? AppColors.darkCard : Colors.grey.shade50,
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.my_location, size: 16, color: Colors.blue),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                _originName ?? '現在地',
+                                style: TextStyle(
+                                  color: _originName == null ? Colors.blue : textColor,
+                                  fontWeight: _originName == null ? FontWeight.bold : FontWeight.normal,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    // 目的地（読み取り専用）
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                      decoration: BoxDecoration(
+                        border: Border.all(color: borderColor),
+                        borderRadius: BorderRadius.circular(8),
+                        color: isDark ? AppColors.darkCard : Colors.grey.shade50,
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.location_on, size: 16, color: Colors.red),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              _destinationName ?? '目的地',
+                              style: TextStyle(color: textColor),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   // ─────────────────────────────────────────────────────────────────────
@@ -1422,7 +1596,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
           ],
 
           // ── 3. 上部：検索バー（ナビ中は非表示）─────────────────────
-          if (!_isNavigating)
+          if (!_isNavigating && !_isRoutePlanning)
             MapSearchBar(
               mapController: _mapController,
               currentPosition: _currentPosition,
@@ -1471,6 +1645,10 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                 }
               },
             ),
+
+          // ルート設定カード
+          if (!_isNavigating && _isRoutePlanning)
+            _buildRoutePlanningCard(),
 
           // ── 4. 画像プレビューカード（ナビ中は非表示）────────────────
           if (imageState.image != null && !_isNavigating)
