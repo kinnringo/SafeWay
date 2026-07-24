@@ -585,3 +585,119 @@ Google Places API (Place Photo) の中継（プロキシ）エンドポイント
 
 - **色分けロジック**: バックエンドは `count`（件数）のみを返す。何件なら何色にするかはフロント側で定義する。
 - **空白領域の扱い**: APIはデータがあるセル（`count > 0`）しか返さない。APIから返却されなかったマップ上の領域は全て「情報空白地帯」として扱い、フロント側で一律に灰色（未調査・情報なし）で表現すること。
+
+---
+
+## POST /api/notifications/register
+
+FCMデバイストークンを登録・更新し、プッシュ通知を有効にするエンドポイント。
+
+### 実装状況: ✅ 実装済み
+
+### ヘッダー
+
+| キー | 必須 | 説明 |
+|---|---|---|
+| `Authorization` | ✅ | `Bearer <JWTトークン>` 形式。認証必須。 |
+
+### リクエスト形式: `application/json`
+
+| フィールド | 型 | 必須 | 説明 |
+|---|---|---|---|
+| `fcm_token` | string | ✅ | Firebase から発行されるデバイストークン |
+| `notification_radius_m` | float | ❌ | 通知を受け取る範囲（メートル）。100m〜100km。デフォルト: 5000.0 |
+
+### レスポンス例
+
+```json
+{
+  "status": "registered",
+  "notification_radius_m": 5000.0
+}
+```
+
+| フィールド | 説明 |
+|---|---|
+| `status` | 新規登録なら `"registered"`、既存レコード更新なら `"updated"` |
+| `notification_radius_m` | 設定された通知範囲（メートル） |
+
+### 内部処理フロー
+
+1. JWTトークンからユーザーを特定
+2. `device_tokens` テーブルに同一ユーザーのレコードが存在すれば更新、なければ新規作成
+3. レスポンスを返却
+
+---
+
+## POST /api/crime-reports
+
+危険情報（クマ出没・不審者等）を新規登録し、FCMトークンを登録している全ユーザーへプッシュ通知を送信するエンドポイント。
+
+### 実装状況: ✅ 実装済み
+
+### 認証: 不要（デモ・外部トリガーからも利用可能）
+
+### リクエスト形式: `application/json`
+
+| フィールド | 型 | 必須 | 説明 |
+|---|---|---|---|
+| `event_type` | string | ✅ | 危険種別。例: `"bear"`（クマ）, `"suspicious_person"`（不審者）, `"traffic"`（交通事故）, `"disaster"`（災害） |
+| `description` | string | ❌ | 詳細な説明文 |
+| `lat` | float | ✅ | 発生場所の緯度 |
+| `lng` | float | ✅ | 発生場所の経度 |
+| `occurred_at` | datetime | ✅ | 発生日時（ISO 8601形式。例: `"2026-07-24T10:30:00"`） |
+
+### リクエスト例
+
+```json
+{
+  "event_type": "bear",
+  "description": "住宅地付近でクマが目撃されました。外出時は注意してください。",
+  "lat": 37.3456,
+  "lng": 138.9012,
+  "occurred_at": "2026-07-24T10:30:00"
+}
+```
+
+### レスポンス例
+
+```json
+{
+  "id": 42,
+  "event_type": "bear",
+  "lat": 37.3456,
+  "lng": 138.9012,
+  "occurred_at": "2026-07-24T10:30:00",
+  "notified_users": 3
+}
+```
+
+| フィールド | 説明 |
+|---|---|
+| `id` | 新しく登録された crime_report の ID |
+| `notified_users` | 通知を送信したデバイス数 |
+
+### 内部処理フロー
+
+1. `crime_reports` テーブルに登録
+2. `safety_points` テーブルにも紐付けて登録（ハザードマップに即反映）
+3. `device_tokens` テーブルに登録されている全ユーザーに対して FCM プッシュ通知を送信
+4. レスポンスを返却（通知送信が失敗しても 500 にはならず、DB登録は確定する）
+
+### FCM通知のフォーマット
+
+| 項目 | 内容 |
+|---|---|
+| タイトル | `⚠️ 近くでクマが目撃されました`（event_type に応じて変化） |
+| 本文 | `description` が指定された場合はそれを使用。なければデフォルトメッセージ |
+| data payload | `{"type": "crime_report", "event_type": "bear", "lat": "37.3456", "lng": "138.9012", "crime_report_id": "42"}` |
+
+### 前提条件
+
+バックエンドの `.env` に以下の設定が必要（フロントエンド担当者がFirebaseコンソールから取得）：
+
+```
+GOOGLE_APPLICATION_CREDENTIALS=./firebase-service-account.json
+```
+
+設定されていない場合、危険情報のDB登録は成功するが通知は送信されない（ログにドライラン旨が記録される）。

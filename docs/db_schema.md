@@ -4,10 +4,11 @@
 
 ## 概要
 
-システムは主に以下の3つのデータグループで構成されています。
+システムは主に以下のデータグループで構成されています。
 1. **ユーザー・エコノミー系** (`users`, `coin_transactions`)
 2. **収集データ系** (`detections`, `crime_reports`)
 3. **ルーティング・評価系** (`safety_points`, `road_edges`)
+4. **通知系** (`device_tokens`)
 
 ---
 
@@ -107,3 +108,18 @@
 | `dynamic_safety_score`| Float | NotNull, Default:0.0 | 周辺の `safety_points` によって加減算される変動値 |
 | `safety_score` | Float | NotNull, Default:0.5 | 最終的な安全スコア (base + dynamic)。0.01〜1.0 に丸められる |
 | `routing_cost` | Float | Nullable | 経路探索コスト。`length × (1.0 / safety_score)` で算出される |
+
+---
+
+## 8. device_tokens (FCMデバイストークン)
+
+プッシュ通知のためのFCMデバイストークンと、通知を受け取る範囲設定を管理します。
+ユーザーは通知範囲（半径）を任意に設定できます（100m〜100km）。
+
+| カラム名 | 型 | 制約 | 説明 |
+|---|---|---|---|
+| `id` | Integer | PK | |
+| `user_id` | Integer | FK → users.id, Unique | ユーザーID（1ユーザー1レコード） |
+| `fcm_token` | String | NotNull | Firebase Cloud Messaging のデバイストークン |
+| `notification_radius_m` | Float | NotNull, Default:5000 | 通知を受け取る範囲（メートル）。デフォルト5km |
+| `updated_at` | DateTime | NotNull | 最終更新日時 |

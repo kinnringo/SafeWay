@@ -179,3 +179,49 @@ class CoverageResponse(BaseModel):
     cell_size: float = Field(..., description="セルサイズ（度）")
     total_cells: int = Field(..., description="返却されたセル数")
 
+
+# ---------------------------------------------------------------------------
+# 通知機能
+# ---------------------------------------------------------------------------
+
+
+class DeviceTokenRegister(BaseModel):
+    """FCMデバイストークンの登録リクエスト"""
+
+    fcm_token: str = Field(..., description="Firebase から発行されるデバイストークン")
+    notification_radius_m: float = Field(
+        5000.0, ge=100.0, le=100000.0,
+        description="通知を受け取る範囲（メートル）。デフォルト5000m(5km)。100m〜100km"
+    )
+
+
+class DeviceTokenResponse(BaseModel):
+    """FCMデバイストークン登録レスポンス"""
+
+    status: str = Field(..., description="登録結果。'registered' または 'updated'")
+    notification_radius_m: float = Field(..., description="設定された通知範囲（メートル）")
+
+
+class CrimeReportCreate(BaseModel):
+    """危険情報登録リクエスト"""
+
+    event_type: str = Field(
+        ...,
+        description="危険種別。例: 'bear'（クマ）, 'suspicious_person'（不審者）, 'traffic'（交通事故）, 'disaster'（災害）"
+    )
+    description: Optional[str] = Field(None, description="詳細な説明文")
+    lat: float = Field(..., ge=-90.0, le=90.0, description="発生場所の緯度")
+    lng: float = Field(..., ge=-180.0, le=180.0, description="発生場所の経度")
+    occurred_at: datetime = Field(..., description="発生日時（ISO 8601形式）")
+
+
+class CrimeReportResponse(BaseModel):
+    """危険情報登録レスポンス"""
+
+    id: int = Field(..., description="登録された crime_report の ID")
+    event_type: str = Field(..., description="危険種別")
+    lat: float = Field(..., description="発生場所の緯度")
+    lng: float = Field(..., description="発生場所の経度")
+    occurred_at: datetime = Field(..., description="発生日時")
+    notified_users: int = Field(..., description="通知を送信したデバイス数")
+
