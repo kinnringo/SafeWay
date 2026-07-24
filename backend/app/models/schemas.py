@@ -122,6 +122,7 @@ class AnalyzeResponse(BaseModel):
     updated_score: float = Field(
         ..., ge=0.0, le=1.0, description="更新後の安全スコア（暫定計算値）"
     )
+    earned_coins: int = Field(0, description="この投稿で獲得したコイン数")
 
 
 # ---------------------------------------------------------------------------

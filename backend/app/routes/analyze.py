@@ -29,12 +29,13 @@ from PIL import Image
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
+from app.core.auth import get_current_user_optional
 from app.core.score_config import (
     DEFAULT_SCORE_MODIFIER,
     SCORE_MODIFIERS,
     INFLUENCE_RADIUS_M,
 )
-from app.models.db_models import Detection, SafetyPoint
+from app.models.db_models import Detection, SafetyPoint, User, CoinTransaction
 from app.models.schemas import AnalyzeResponse, DetectionResult
 from app.services.detection import detect_objects
 from app.services.exif_reader import extract_from_image
@@ -71,6 +72,7 @@ async def analyze_image(
         description="Trueの場合、YOLOが何も検出しなくてもダミーの街灯検出を1つ注入します（デバッグ・テスト用）。",
     ),
     db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user_optional),
 ):
     """
     画像を受け取り、YOLO 推論 → 物体位置推定 → DB 保存を行い、
@@ -195,7 +197,7 @@ async def analyze_image(
 
         # --- 6b. detections テーブルへ保存 ---
         db_detection = Detection(
-            user_id=None,          # 認証未実装のため暫定 None
+            user_id=current_user.id if current_user else None,
             label=d["label"],
             confidence=d["confidence"],
             image_path=None,       # 将来的にストレージ保存パスを設定
@@ -265,8 +267,19 @@ async def analyze_image(
         )
 
     # ----------------------------------------------------------------
-    # 7. 検出結果・safety_pointsをコミットする（ここまでは必ず成功させる）
+    # 7. ユーザーへのリワード付与とコミット
     # ----------------------------------------------------------------
+    earned_coins = 0
+    if current_user:
+        earned_coins = 10
+        current_user.coins += earned_coins
+        db.add(CoinTransaction(
+            user_id=current_user.id,
+            amount=earned_coins,
+            reason="画像投稿リワード",
+            created_at=datetime.utcnow()
+        ))
+    
     db.commit()
 
     # ----------------------------------------------------------------
@@ -302,4 +315,5 @@ async def analyze_image(
         user_lat=final_lat,
         user_lng=final_lng,
         updated_score=updated_score,
+        earned_coins=earned_coins,
     )

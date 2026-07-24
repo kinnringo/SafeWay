@@ -133,6 +133,12 @@
 
 ### 実装状況: ✅ 実装済み
 
+### ヘッダー
+
+| キー | 必須 | 説明 |
+|---|---|---|
+| `Authorization` | ❌ | `Bearer <token>` の形式でJWTトークンを指定。送信した場合、解析結果がアカウントに紐付きコインが付与される。 |
+
 ### リクエスト形式: `multipart/form-data`
 
 | パラメータ | 型 | 必須 | 説明 |
@@ -157,6 +163,7 @@
 | `user_lat` | float | 撮影者の緯度 |
 | `user_lng` | float | 撮影者の経度 |
 | `updated_score` | float (0.0〜1.0) | 更新後の安全スコア（暫定計算値） |
+| `earned_coins` | integer | この投稿で獲得したコイン数 |
 
 **DetectionResult の構造:**
 
@@ -189,7 +196,8 @@
   ],
   "user_lat": 36.3900,
   "user_lng": 139.0634,
-  "updated_score": 0.6
+  "updated_score": 0.6,
+  "earned_coins": 10
 }
 ```
 
