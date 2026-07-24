@@ -325,7 +325,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     final coverageState = ref.read(coverageProvider);
     if (coverageState.isVisible && _mapController != null) {
       final zoom = await _mapController!.getZoomLevel();
-      if (zoom >= 10.0) {
+      if (zoom >= 8.0) {
         final bounds = await _mapController!.getVisibleRegion();
         ref.read(coverageProvider.notifier).fetchCoverage(
               minLat: bounds.southwest.latitude,
@@ -341,33 +341,63 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   Set<Polygon> _buildCoveragePolygons(CoverageState coverageState) {
     if (!coverageState.isVisible) return {};
     
+    debugPrint('Coverage Cells to draw: ${coverageState.cells.length}');
+    
     final Set<Polygon> polygons = {};
-    final List<List<LatLng>> holes = [];
     final cellSize = coverageState.cellSize;
     
-    for (final cell in coverageState.cells) {
-      final sw = LatLng(cell.lat, cell.lng);
-      final nw = LatLng(cell.lat + cellSize, cell.lng);
-      final ne = LatLng(cell.lat + cellSize, cell.lng + cellSize);
-      final se = LatLng(cell.lat, cell.lng + cellSize);
-      holes.add([sw, nw, ne, se]);
-    }
-
-    // 1. 巨大背景ポリゴン（地球全体）
-    polygons.add(
+    // 1. 背景ポリゴン（地球全体を4分割）
+    final bgColor = Colors.grey.withValues(alpha: 0.5);
+    polygons.addAll([
       Polygon(
-        polygonId: const PolygonId('coverage_background'),
+        polygonId: const PolygonId('coverage_bg_nw'),
         points: const [
-          LatLng(90, -180),
-          LatLng(90, 180),
-          LatLng(-90, 180),
-          LatLng(-90, -180),
+          LatLng(89.9, -179.9),
+          LatLng(89.9, 0),
+          LatLng(0, 0),
+          LatLng(0, -179.9),
         ],
-        holes: holes,
-        fillColor: Colors.grey.withValues(alpha: 0.5),
+        fillColor: bgColor,
         strokeWidth: 0,
+        zIndex: 0,
       ),
-    );
+      Polygon(
+        polygonId: const PolygonId('coverage_bg_ne'),
+        points: const [
+          LatLng(89.9, 0),
+          LatLng(89.9, 179.9),
+          LatLng(0, 179.9),
+          LatLng(0, 0),
+        ],
+        fillColor: bgColor,
+        strokeWidth: 0,
+        zIndex: 0,
+      ),
+      Polygon(
+        polygonId: const PolygonId('coverage_bg_sw'),
+        points: const [
+          LatLng(0, -179.9),
+          LatLng(0, 0),
+          LatLng(-89.9, 0),
+          LatLng(-89.9, -179.9),
+        ],
+        fillColor: bgColor,
+        strokeWidth: 0,
+        zIndex: 0,
+      ),
+      Polygon(
+        polygonId: const PolygonId('coverage_bg_se'),
+        points: const [
+          LatLng(0, 0),
+          LatLng(0, 179.9),
+          LatLng(-89.9, 179.9),
+          LatLng(-89.9, 0),
+        ],
+        fillColor: bgColor,
+        strokeWidth: 0,
+        zIndex: 0,
+      ),
+    ]);
 
     // 2. データセルポリゴン（緑色）
     for (int i = 0; i < coverageState.cells.length; i++) {
@@ -377,14 +407,22 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       final ne = LatLng(cell.lat + cellSize, cell.lng + cellSize);
       final se = LatLng(cell.lat, cell.lng + cellSize);
       
-      final opacity = (0.2 + cell.count * 0.1).clamp(0.2, 0.8);
+      Color cellColor;
+      if (cell.count <= 2) {
+        cellColor = Colors.lightGreen.withValues(alpha: 0.4);
+      } else if (cell.count <= 4) {
+        cellColor = Colors.green.withValues(alpha: 0.6);
+      } else {
+        cellColor = Colors.green[800]!.withValues(alpha: 0.8);
+      }
       
       polygons.add(
         Polygon(
           polygonId: PolygonId('coverage_cell_$i'),
           points: [sw, nw, ne, se],
-          fillColor: Colors.green.withValues(alpha: opacity),
+          fillColor: cellColor,
           strokeWidth: 0,
+          zIndex: 10,
         ),
       );
     }
@@ -460,7 +498,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       icon: (isBear && bearIcon != null)
           ? bearIcon
           : BitmapDescriptor.defaultMarkerWithHue(
-              isBear ? BitmapDescriptor.hueOrange : BitmapDescriptor.hueYellow,
+              isBear ? BitmapDescriptor.hueOrange : BitmapDescriptor.hueRed,
             ),
       onTap: () => _showHazardDetailsSheet(hazard),
     );
@@ -681,65 +719,78 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   }
 
   Future<void> _initLocationTracking() async {
-    bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
-    if (!serviceEnabled) return;
-
-    LocationPermission permission = await Geolocator.checkPermission();
-    if (permission == LocationPermission.denied) {
-      permission = await Geolocator.requestPermission();
-      if (permission == LocationPermission.denied) return;
-    }
-    if (permission == LocationPermission.deniedForever) return;
-
-    // 初回の現在地を取得
     try {
-      final pos = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high,
+      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) return;
+
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+        if (permission == LocationPermission.denied) return;
+      }
+      if (permission == LocationPermission.deniedForever) return;
+
+      // 初回の現在地を取得
+      try {
+        final pos = await Geolocator.getCurrentPosition(
+          desiredAccuracy: LocationAccuracy.high,
+        );
+        if (mounted) {
+          setState(() {
+            _currentPosition = LatLng(pos.latitude, pos.longitude);
+            _isLoadingGps = false;
+          });
+          if (!_hasMovedToCurrentLocation) {
+            _mapController?.animateCamera(
+              CameraUpdate.newLatLngZoom(_currentPosition!, 15.0),
+            );
+            _hasMovedToCurrentLocation = true;
+          }
+        }
+      } catch (e) {
+        // 初期取得失敗時はストリームへ
+        debugPrint('Initial location fetch failed: $e');
+      }
+
+      // ストリームで継続的な追従（10メートル以上動いた時だけ更新）
+      _positionStream = Geolocator.getPositionStream(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+          distanceFilter: 10,
+        ),
+      ).listen(
+        (Position position) {
+          if (mounted) {
+            setState(() {
+              _currentPosition = LatLng(position.latitude, position.longitude);
+              _isLoadingGps = false;
+            });
+
+            if (!_hasMovedToCurrentLocation) {
+              _mapController?.animateCamera(
+                CameraUpdate.newLatLngZoom(_currentPosition!, 15.0),
+              );
+              _hasMovedToCurrentLocation = true;
+            }
+
+            // ナビ中はカメラが現在地を追従
+            if (_isNavigating) {
+              _mapController?.animateCamera(
+                CameraUpdate.newLatLng(_currentPosition!),
+              );
+            }
+          }
+        },
+        onError: (error) {
+          debugPrint('Location stream error: $error');
+        },
       );
-      if (mounted) {
-        setState(() {
-          _currentPosition = LatLng(pos.latitude, pos.longitude);
-          _isLoadingGps = false;
-        });
-        if (!_hasMovedToCurrentLocation) {
-          _mapController?.animateCamera(
-            CameraUpdate.newLatLngZoom(_currentPosition!, 15.0),
-          );
-          _hasMovedToCurrentLocation = true;
-        }
-      }
     } catch (e) {
-      // 初期取得失敗時はストリームへ
-    }
-
-    // ストリームで継続的な追従（10メートル以上動いた時だけ更新）
-    _positionStream = Geolocator.getPositionStream(
-      locationSettings: const LocationSettings(
-        accuracy: LocationAccuracy.high,
-        distanceFilter: 10,
-      ),
-    ).listen((Position position) {
+      debugPrint('Location tracking init error: $e');
       if (mounted) {
-        setState(() {
-          _currentPosition = LatLng(position.latitude, position.longitude);
-          _isLoadingGps = false;
-        });
-
-        if (!_hasMovedToCurrentLocation) {
-          _mapController?.animateCamera(
-            CameraUpdate.newLatLngZoom(_currentPosition!, 15.0),
-          );
-          _hasMovedToCurrentLocation = true;
-        }
-
-        // ナビ中はカメラが現在地を追従
-        if (_isNavigating) {
-          _mapController?.animateCamera(
-            CameraUpdate.newLatLng(_currentPosition!),
-          );
-        }
+        setState(() => _isLoadingGps = false);
       }
-    });
+    }
   }
 
 
@@ -1100,14 +1151,13 @@ class _MapScreenState extends ConsumerState<MapScreen> {
             final textColor = isDarkTheme ? AppColors.darkTextPrimary : Colors.black87;
 
             return PointerInterceptor(
-              child: Container(
-                padding: const EdgeInsets.all(20),
-                decoration: BoxDecoration(
-                  color: bgColor,
-                  borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-                ),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
+              child: Material(
+                color: bgColor,
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+                child: Padding(
+                  padding: const EdgeInsets.all(20),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
                   children: [
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -1143,7 +1193,8 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                   ],
                 ),
               ),
-            );
+            ),
+          );
           },
         );
       },
@@ -1158,6 +1209,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     final coveragePolygons = _buildCoveragePolygons(coverageState);
 
     return Scaffold(
+      resizeToAvoidBottomInset: false,
       // ナビ中は AppBar を非表示
       appBar: _isNavigating
           ? null
@@ -1338,7 +1390,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                           final newState = ref.read(coverageProvider);
                           if (newState.isVisible && _mapController != null) {
                             final zoom = await _mapController!.getZoomLevel();
-                            if (zoom >= 10.0) {
+                            if (zoom >= 8.0) {
                               final bounds = await _mapController!.getVisibleRegion();
                               notifier.fetchCoverage(
                                 minLat: bounds.southwest.latitude,

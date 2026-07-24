@@ -216,8 +216,10 @@ class ApiService {
         final results = data['results'] as List<dynamic>?;
         
         if (results != null && results.isNotEmpty) {
-          // タップ座標に最も近い施設を選ぶ（results.first は prominence 順のため不適切）
-          Map<String, dynamic>? closest;
+          // レビュー件数（user_ratings_total）と評価（rating）を基準に最適な施設を選択
+          Map<String, dynamic>? bestPlace;
+          int maxReviews = -1;
+          double maxRating = -1.0;
           double minDistSq = double.infinity;
 
           for (final r in results) {
@@ -228,26 +230,48 @@ class ApiService {
 
             final rLat = (loc['lat'] as num).toDouble();
             final rLng = (loc['lng'] as num).toDouble();
-            // 三平方の定理による簡易距離（二乗和）で比較
-            final distSq =
-                (rLat - lat) * (rLat - lat) + (rLng - lng) * (rLng - lng);
+            final distSq = (rLat - lat) * (rLat - lat) + (rLng - lng) * (rLng - lng);
 
-            if (distSq < minDistSq) {
+            final reviews = place['user_ratings_total'] as int? ?? 0;
+            final rating = (place['rating'] as num?)?.toDouble() ?? 0.0;
+
+            bool isBetter = false;
+
+            // 1. 基本的にレビュー件数（user_ratings_total）が最も多い施設を最優先
+            if (reviews > maxReviews) {
+              isBetter = true;
+            } 
+            // 2. レビュー件数が同じ場合は、評価（rating）が高い方を優先
+            else if (reviews == maxReviews) {
+              if (rating > maxRating) {
+                isBetter = true;
+              } 
+              // 3. レビューも評価も同じ場合は、タップ座標からの距離が近い方を優先
+              else if (rating == maxRating) {
+                if (distSq < minDistSq) {
+                  isBetter = true;
+                }
+              }
+            }
+
+            if (isBetter) {
+              maxReviews = reviews;
+              maxRating = rating;
               minDistSq = distSq;
-              closest = place;
+              bestPlace = place;
             }
           }
 
-          if (closest != null) {
+          if (bestPlace != null) {
             final geomLat =
-                closest['geometry']['location']['lat'] as num;
+                bestPlace['geometry']['location']['lat'] as num;
             final geomLng =
-                closest['geometry']['location']['lng'] as num;
+                bestPlace['geometry']['location']['lng'] as num;
 
             return {
               'lat': geomLat.toDouble(),
               'lng': geomLng.toDouble(),
-              'placeId': closest['place_id'] as String,
+              'placeId': bestPlace['place_id'] as String,
             };
           }
         }
