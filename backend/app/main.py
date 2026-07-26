@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 
 from app.core.database import engine, Base
-from app.routes import route, analyze, hazards, places, auth, coverage, notifications
+from app.routes import route, analyze, hazards, places, auth, coverage, notifications, demo
 
 def init_db():
     try:
@@ -63,6 +63,7 @@ app.include_router(places.router, prefix="/api", tags=["places"])
 app.include_router(auth.router, prefix="/api", tags=["auth"])
 app.include_router(coverage.router, prefix="/api", tags=["coverage"])
 app.include_router(notifications.router, prefix="/api", tags=["notifications"])
+app.include_router(demo.router, tags=["demo"])
 
 
 @app.get("/health")

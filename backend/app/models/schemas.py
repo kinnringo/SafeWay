@@ -212,7 +212,7 @@ class CrimeReportCreate(BaseModel):
     description: Optional[str] = Field(None, description="詳細な説明文")
     lat: float = Field(..., ge=-90.0, le=90.0, description="発生場所の緯度")
     lng: float = Field(..., ge=-180.0, le=180.0, description="発生場所の経度")
-    occurred_at: datetime = Field(..., description="発生日時（ISO 8601形式）")
+    occurred_at: Optional[datetime] = Field(None, description="発生日時。省略時はサーバー到達時点のシステム時間を自動設定")
 
 
 class CrimeReportResponse(BaseModel):
@@ -222,6 +222,7 @@ class CrimeReportResponse(BaseModel):
     event_type: str = Field(..., description="危険種別")
     lat: float = Field(..., description="発生場所の緯度")
     lng: float = Field(..., description="発生場所の経度")
+    occurred_at: datetime = Field(..., description="発生日時")
     notified_users: int = Field(..., description="通知を送信したデバイス数")
 
 
@@ -235,4 +236,24 @@ class CrimeReportDetail(BaseModel):
     lng: float = Field(..., description="発生場所の経度")
     occurred_at: datetime = Field(..., description="発生日時")
     created_at: datetime = Field(..., description="データ登録日時")
+
+
+class DebugDetectionCreate(BaseModel):
+    """デモ・デバッグ専用の検出情報登録リクエスト"""
+
+    label: str = Field(..., description="検出物体のラベル。例: 'street_light' (街灯), 'sidewalk' (歩道)")
+    lat: float = Field(..., ge=-90.0, le=90.0, description="指定座標の緯度")
+    lng: float = Field(..., ge=-180.0, le=180.0, description="指定座標の経度")
+    confidence: Optional[float] = Field(0.99, description="信頼度")
+
+
+class DebugDetectionResponse(BaseModel):
+    """デモ・デバッグ専用の検出情報レスポンス"""
+
+    id: int
+    label: str
+    lat: float
+    lng: float
+    score_modifier: float
+    created_at: datetime
 

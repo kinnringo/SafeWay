@@ -98,11 +98,13 @@ def create_crime_report(
     # --- 1. crime_reports テーブルに保存 ---
     obj_geom = f"SRID=4326;POINT({payload.lng} {payload.lat})"
 
+    occurred_time = payload.occurred_at or datetime.utcnow()
+
     crime_report = CrimeReport(
         event_type=payload.event_type,
         description=payload.description,
         geom=obj_geom,
-        occurred_at=payload.occurred_at,
+        occurred_at=occurred_time,
         created_at=datetime.utcnow(),
     )
     db.add(crime_report)
