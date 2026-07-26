@@ -259,10 +259,10 @@ DEMO_CONSOLE_HTML = """
                 <div class="field-group">
                     <label>事象タイプ (event_type)</label>
                     <select id="crime-type" onchange="updateDefaultDescription()">
-                        <option value="bear">bear (クマ出没 - 高警戒)</option>
-                        <option value="suspicious_person">suspicious_person (不審者・治安)</option>
-                        <option value="disaster">disaster (道路災害・路面障害)</option>
-                        <option value="traffic">traffic (交通事故・遅延)</option>
+                        <option value="bear">bear (クマ出没)</option>
+                        <option value="wildlife">wildlife (その他の野生動物)</option>
+                        <option value="suspicious_person">suspicious_person (不審者・犯罪兆候)</option>
+                        <option value="crime_violent">crime_violent (凶悪犯罪)</option>
                     </select>
                 </div>
 
@@ -286,9 +286,8 @@ DEMO_CONSOLE_HTML = """
                 <div class="field-group">
                     <label>検出ラベル (label)</label>
                     <select id="detect-label">
-                        <option value="street_light">street_light (街灯 / 安全スコア加点)</option>
+                        <option value="streetlight">streetlight (街灯 / 安全スコア加点)</option>
                         <option value="sidewalk">sidewalk (歩道 / 安全スコア加点)</option>
-                        <option value="crosswalk">crosswalk (横断歩道)</option>
                     </select>
                 </div>
 
@@ -377,12 +376,12 @@ DEMO_CONSOLE_HTML = """
         
         if (type === 'bear') {
             descBox.value = "【頭数】1.0 【状況】干俣川から県道を渡って山の方向へ走って行った";
+        } else if (type === 'wildlife') {
+            descBox.value = "【野生動物】イノシシの成獣1頭が路上横断、裏路地の方へ逃走";
         } else if (type === 'suspicious_person') {
-            descBox.value = "【不審者】身元の分からない不審な人物がうわごとを口にしつつ周囲を見渡し徘徊中";
-        } else if (type === 'disaster') {
-            descBox.value = "【路面障害】雨天の影響による路面の土砂流入・崩壊箇所を確認";
-        } else {
-            descBox.value = "【障害報告】進行ルート上に障害となる対象物が確認されました";
+            descBox.value = "【不審者】身元の分からない人物が辺りを伺いながら不審な行動を取っている";
+        } else if (type === 'crime_violent') {
+            descBox.value = "【凶悪犯罪】路上にて暴力事態発生の通報あり。直ちに迂回徹底のこと";
         }
     }
 
