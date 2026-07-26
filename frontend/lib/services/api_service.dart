@@ -105,6 +105,28 @@ class ApiService {
     return _sendRequest(request);
   }
 
+  /// FCMデバイストークンをバックエンドに登録する
+  Future<void> registerDeviceToken({
+    required String jwtToken,
+    required String fcmToken,
+    double notificationRadiusM = 5000.0,
+  }) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/notifications/register'),
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $jwtToken',
+      },
+      body: jsonEncode({
+        'fcm_token': fcmToken,
+        'notification_radius_m': notificationRadiusM,
+      }),
+    );
+    if (response.statusCode != 200 && response.statusCode != 201) {
+      throw Exception('デバイスの登録に失敗しました: ${response.body}');
+    }
+  }
+
   /// 経路探索: POST /api/route
   ///
   /// [startLat] 出発地の緯度

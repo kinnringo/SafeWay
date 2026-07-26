@@ -4,8 +4,16 @@ import 'core/theme.dart';
 import 'screens/map_screen.dart';
 import 'screens/login_screen.dart';
 import 'services/auth_service.dart';
+import 'services/notification_service.dart';
 
-void main() {
+import 'package:firebase_core/firebase_core.dart';
+
+final GlobalKey<ScaffoldMessengerState> rootScaffoldMessengerKey = GlobalKey<ScaffoldMessengerState>();
+
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp();
+
   runApp(
     const ProviderScope(
       child: SafeWayApp(),
@@ -22,6 +30,7 @@ class SafeWayApp extends StatelessWidget {
       title: 'SafeWay',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.lightTheme,
+      scaffoldMessengerKey: rootScaffoldMessengerKey,
       home: const _AuthGate(),
     );
   }
@@ -33,6 +42,9 @@ class _AuthGate extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    // 起動時からFCMリスナーや認証状態の監視を有効にする
+    ref.watch(notificationServiceProvider);
+
     final authState = ref.watch(authProvider);
 
     switch (authState.status) {

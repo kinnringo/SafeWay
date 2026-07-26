@@ -21,6 +21,8 @@ dependencies:
   pointer_interceptor: ^0.10.1
   shared_preferences: ^2.2.3
   url_launcher: ^6.3.2
+  firebase_core: ^4.12.1
+  firebase_messaging: ^16.4.3
 
 dev_dependencies:
   flutter_test:
