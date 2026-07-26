@@ -15,6 +15,8 @@ class User(Base):
 
     detections = relationship("Detection", back_populates="user")
     coin_transactions = relationship("CoinTransaction", back_populates="user")
+    device_tokens = relationship("DeviceToken", back_populates="user")
+
 
 
 class CoinTransaction(Base):
@@ -27,6 +29,24 @@ class CoinTransaction(Base):
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
     user = relationship("User", back_populates="coin_transactions")
+
+
+class DeviceToken(Base):
+    """ユーザーのFCMデバイストークンと通知設定を管理するテーブル"""
+    __tablename__ = "device_tokens"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    fcm_token = Column(String, nullable=False)
+    notification_radius_m = Column(Float, default=5000.0, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint('user_id', name='uix_device_token_user'),
+    )
+
+    user = relationship("User", back_populates="device_tokens")
+
 
 
 class Detection(Base):
