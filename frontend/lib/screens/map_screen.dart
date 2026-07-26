@@ -65,6 +65,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   BitmapDescriptor? _bearMarkerSmall;
   BitmapDescriptor? _bearMarkerMedium;
   BitmapDescriptor? _bearMarkerLarge;
+  BitmapDescriptor? _streetlightMarker; // 街灯用カスタムマーカー
 
   /// ルート描画用のポリラインセット
   Set<Polyline> _polylines = {};
@@ -101,6 +102,8 @@ class _MapScreenState extends ConsumerState<MapScreen> {
 
   /// 現在のカメラズームレベル（14.5以上で wildlife マーカーを非表示にする）
   double _currentZoom = 14.0;
+  static const double _streetlightZoomThreshold = 14.0; // 街灯の表示切り替え閾値
+  bool _showStreetlights = true; // 街灯を表示するかどうか
 
   static const LatLng _defaultCenter = LatLng(36.3895, 139.0634); // 前橋駅
 
@@ -538,17 +541,32 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   /// ハザード情報からマーカーを生成
   Marker? _createHazardMarker(HazardPoint hazard) {
     debugPrint('Hazard Info - eventType: ${hazard.eventType}, sourceType: ${hazard.sourceType}, label:${hazard.label}');
-    
+
     final isBear = hazard.sourceType.toLowerCase() == 'bear' ||
                    hazard.eventType?.toLowerCase() == 'bear' ||
                    (hazard.label?.toLowerCase().contains('bear') ?? false) ||
                    (hazard.label?.contains('クマ') ?? false) ||
                    (hazard.label?.contains('熊') ?? false);
 
+    final isStreetlight =
+        hazard.sourceType.toLowerCase() == 'streetlight' ||
+        hazard.sourceType.toLowerCase() == 'street_light' ||
+        hazard.eventType?.toLowerCase() == 'streetlight' ||
+        hazard.eventType?.toLowerCase() == 'street_light' ||
+        (hazard.label?.toLowerCase().contains('streetlight') ?? false) ||
+        (hazard.label?.toLowerCase().contains('street_light') ?? false) ||
+        (hazard.label?.contains('街灯') ?? false);
+
+    // 街灯非表示状態ならマーカー生成をスキップ
+    if (isStreetlight && !_showStreetlights) {
+      return null;
+    }
+
     if (isBear && _currentZoom >= 15.0) {
       return null;
     }
 
+    // ── クマ用アイコン選択 ──
     BitmapDescriptor? bearIcon;
     if (isBear) {
       if (_currentZoom < 8.0) {
@@ -560,14 +578,26 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       }
     }
 
+    // ── 街灯用アイコン選択 ──
+    final BitmapDescriptor? streetlightIcon =
+        isStreetlight ? _streetlightMarker : null;
+
+    // ── アイコンの優先順位: クマ > 街灯 > デフォルト ──
+    final BitmapDescriptor icon;
+    if (isBear && bearIcon != null) {
+      icon = bearIcon;
+    } else if (isStreetlight && streetlightIcon != null) {
+      icon = streetlightIcon;
+    } else {
+      icon = BitmapDescriptor.defaultMarkerWithHue(
+        isBear ? BitmapDescriptor.hueOrange : BitmapDescriptor.hueRed,
+      );
+    }
+
     return Marker(
       markerId: MarkerId('hazard_${hazard.id}'),
       position: LatLng(hazard.lat, hazard.lng),
-      icon: (isBear && bearIcon != null)
-          ? bearIcon
-          : BitmapDescriptor.defaultMarkerWithHue(
-              isBear ? BitmapDescriptor.hueOrange : BitmapDescriptor.hueRed,
-            ),
+      icon: icon,
       onTap: () => _showHazardDetailsSheet(hazard),
     );
   }
@@ -933,13 +963,15 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     final small = await createBearMarker(size: 25);
     final medium = await createBearMarker(size: 45);
     final large = await createBearMarker(size: 65);
+    final streetlight = await createStreetlightMarker(size: 45);
     if (mounted) {
       setState(() {
         _bearMarkerSmall = small;
         _bearMarkerMedium = medium;
         _bearMarkerLarge = large;
+        _streetlightMarker = streetlight;
       });
-      
+
       // アイコン生成後にすでにハザードマーカーが存在していれば、アイコンを適用するために再描画（または再取得）する
       if (_hazardMarkers.isNotEmpty) {
         _fetchHazards();
@@ -1836,9 +1868,16 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                 final crossed12_0 = (_currentZoom < 12.0) != (newZoom < 12.0);
                 final crossed14_5 = (_currentZoom < 14.5) != (newZoom < 14.5);
                 final crossed15_0 = (_currentZoom < 15.0) != (newZoom < 15.0);
+                
+                final bool newShowStreetlights = newZoom >= _streetlightZoomThreshold;
+                final bool crossedStreetlight = _showStreetlights != newShowStreetlights;
+
                 _currentZoom = newZoom;
-                if ((crossed8_0 || crossed12_0 || crossed14_5 || crossed15_0) && mounted) {
+                if ((crossed8_0 || crossed12_0 || crossed14_5 || crossed15_0 || crossedStreetlight) && mounted) {
                   setState(() {
+                    if (crossedStreetlight) {
+                      _showStreetlights = newShowStreetlights;
+                    }
                     _hazardMarkers = _hazardMarkers
                         .where((marker) => true)
                         .toSet();

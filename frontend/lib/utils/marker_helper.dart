@@ -3,7 +3,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
-Future<BitmapDescriptor> createBearMarker({required int size}) async {
+/// 白い円の背景に [assetPath] の画像を描画したカスタムマーカーを生成する汎用関数。
+///
+/// [size]      マーカー全体の正方形サイズ（論理ピクセル）
+/// [assetPath] 表示する画像のアセットパス
+/// [imageScale] 画像を円に対して何割のサイズにするか（デフォルト 0.7）
+Future<BitmapDescriptor> createCircleIconMarker({
+  required int size,
+  required String assetPath,
+  double imageScale = 0.7,
+}) async {
   final ui.PictureRecorder pictureRecorder = ui.PictureRecorder();
   final Canvas canvas = Canvas(pictureRecorder);
 
@@ -12,11 +21,11 @@ Future<BitmapDescriptor> createBearMarker({required int size}) async {
   final double radius = size / 2;
   canvas.drawCircle(Offset(radius, radius), radius, paint);
 
-  // 2. クマの画像をロード
-  final ByteData data = await rootBundle.load('assets/images/bear.png');
+  // 2. 画像をロード
+  final ByteData data = await rootBundle.load(assetPath);
   final ui.Codec codec = await ui.instantiateImageCodec(
     data.buffer.asUint8List(),
-    targetWidth: (size * 0.7).toInt(), // 円の中に収まるように縮小
+    targetWidth: (size * imageScale).toInt(),
   );
   final ui.FrameInfo fi = await codec.getNextFrame();
   final ui.Image image = fi.image;
@@ -26,9 +35,27 @@ Future<BitmapDescriptor> createBearMarker({required int size}) async {
   canvas.drawImage(image, Offset(offset, offset), Paint());
 
   // 4. BitmapDescriptor に変換
-  final ui.Image markerAsImage = await pictureRecorder.endRecording().toImage(size, size);
-  final ByteData? byteData = await markerAsImage.toByteData(format: ui.ImageByteFormat.png);
+  final ui.Image markerAsImage =
+      await pictureRecorder.endRecording().toImage(size, size);
+  final ByteData? byteData =
+      await markerAsImage.toByteData(format: ui.ImageByteFormat.png);
   final Uint8List uint8List = byteData!.buffer.asUint8List();
 
   return BitmapDescriptor.bytes(uint8List);
+}
+
+/// クマのカスタムマーカー（後方互換のためラッパーとして維持）
+Future<BitmapDescriptor> createBearMarker({required int size}) async {
+  return createCircleIconMarker(
+    size: size,
+    assetPath: 'assets/images/bear.png',
+  );
+}
+
+/// 街灯のカスタムマーカー
+Future<BitmapDescriptor> createStreetlightMarker({required int size}) async {
+  return createCircleIconMarker(
+    size: size,
+    assetPath: 'assets/images/Streetlight.png',
+  );
 }
