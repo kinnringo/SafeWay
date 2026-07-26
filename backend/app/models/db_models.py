@@ -16,6 +16,9 @@ class User(Base):
     detections = relationship("Detection", back_populates="user")
     coin_transactions = relationship("CoinTransaction", back_populates="user")
     device_tokens = relationship("DeviceToken", back_populates="user")
+    saved_routes = relationship("SavedRoute", back_populates="user")
+    route_alerts = relationship("RouteAlert", back_populates="user")
+
 
 
 
@@ -140,4 +143,60 @@ class CoverageCell(Base):
     __table_args__ = (
         UniqueConstraint('cell_lat', 'cell_lng', 'cell_size', name='uix_coverage_cell'),
     )
+
+
+class SavedRoute(Base):
+    """ユーザーが保存したルートテーブル
+
+    始点・終点座標を保存し、再表示時は再ルーティングで最新スコアを反映する。
+    通知判定には保存時に計算されたルートの LineString ジオメトリを使用する。
+    """
+    __tablename__ = "saved_routes"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+
+    # 再ルーティング用（表示時に POST /api/route へ渡す）
+    start_lat = Column(Float, nullable=False)
+    start_lng = Column(Float, nullable=False)
+    end_lat = Column(Float, nullable=False)
+    end_lng = Column(Float, nullable=False)
+
+    # "safe" または "shortest"
+    route_type = Column(String, nullable=False, default="safe")
+
+    # 沿道通知判定用ジオメトリ（保存時に内部ルーティングで生成した LineString）
+    route_geom = Column(Geometry(geometry_type='LINESTRING', srid=4326), nullable=True)
+
+    # ユーザーが設定した通知半径（メートル）
+    notification_radius_m = Column(Float, default=500.0, nullable=False)
+
+    # 任意のルート名（省略可）
+    name = Column(String, nullable=True)
+
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    user = relationship("User", back_populates="saved_routes")
+    alerts = relationship("RouteAlert", back_populates="saved_route", cascade="all, delete-orphan")
+
+
+class RouteAlert(Base):
+    """保存ルート沿いで発生した危険情報の通知レコード
+
+    POST /api/crime-reports 時に、登録地点から notification_radius_m 以内の
+    saved_routes を検索し、該当するユーザーへのアラートとして書き込む。
+    フロントはポーリングで GET /api/saved-routes/alerts を監視する。
+    """
+    __tablename__ = "route_alerts"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    saved_route_id = Column(Integer, ForeignKey("saved_routes.id"), nullable=False)
+    crime_report_id = Column(Integer, ForeignKey("crime_reports.id"), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    user = relationship("User", back_populates="route_alerts")
+    saved_route = relationship("SavedRoute", back_populates="alerts")
+    crime_report = relationship("CrimeReport")
+
 

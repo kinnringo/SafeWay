@@ -241,7 +241,7 @@ class CrimeReportDetail(BaseModel):
 class DebugDetectionCreate(BaseModel):
     """デモ・デバッグ専用の検出情報登録リクエスト"""
 
-    label: str = Field(..., description="検出物体のラベル。例: 'street_light' (街灯), 'sidewalk' (歩道)")
+    label: str = Field(..., description="検出物体のラベル。例: 'streetlight' (街灯), 'sidewalk' (歩道)")
     lat: float = Field(..., ge=-90.0, le=90.0, description="指定座標の緯度")
     lng: float = Field(..., ge=-180.0, le=180.0, description="指定座標の経度")
     confidence: Optional[float] = Field(0.99, description="信頼度")
@@ -257,3 +257,63 @@ class DebugDetectionResponse(BaseModel):
     score_modifier: float
     created_at: datetime
 
+
+# ---------------------------------------------------------------------------
+# 保存ルート
+# ---------------------------------------------------------------------------
+
+
+class SavedRouteCreate(BaseModel):
+    """ルート保存リクエスト"""
+
+    start_lat: float = Field(..., ge=-90.0, le=90.0, description="出発地の緯度")
+    start_lng: float = Field(..., ge=-180.0, le=180.0, description="出発地の経度")
+    end_lat: float = Field(..., ge=-90.0, le=90.0, description="目的地の緯度")
+    end_lng: float = Field(..., ge=-180.0, le=180.0, description="目的地の経度")
+    route_type: str = Field("safe", description="保存するルート種別: 'safe' または 'shortest'")
+    notification_radius_m: float = Field(
+        500.0, ge=50.0, le=5000.0,
+        description="このルート沿いで危険情報を検知する半径（メートル）。デフォルト 500m。"
+    )
+    name: Optional[str] = Field(None, max_length=100, description="ルートの任意名称（省略可）")
+
+
+class SavedRouteResponse(BaseModel):
+    """保存ルートのレスポンス"""
+
+    id: int = Field(..., description="保存ルートID")
+    user_id: int = Field(..., description="オーナーのユーザーID")
+    start_lat: float
+    start_lng: float
+    end_lat: float
+    end_lng: float
+    route_type: str = Field(..., description="ルート種別: 'safe' または 'shortest'")
+    notification_radius_m: float
+    name: Optional[str] = None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+# ---------------------------------------------------------------------------
+# 保存ルートアラート
+# ---------------------------------------------------------------------------
+
+
+class RouteAlertResponse(BaseModel):
+    """保存ルート沿いの危険情報アラートレスポンス"""
+
+    id: int = Field(..., description="アラートレコードID（after_id ポーリング用）")
+    saved_route_id: int = Field(..., description="対象の保存ルートID")
+    crime_report_id: int = Field(..., description="トリガーとなった危険情報ID")
+
+    # 危険情報の詳細
+    event_type: str = Field(..., description="危険情報の種別（bear, suspicious_person 等）")
+    description: Optional[str] = Field(None, description="危険情報の詳細テキスト")
+    report_lat: float = Field(..., description="危険情報の発生緯度")
+    report_lng: float = Field(..., description="危険情報の発生経度")
+    occurred_at: datetime = Field(..., description="危険情報の発生日時")
+
+    created_at: datetime = Field(..., description="アラートの生成日時")
+
+    model_config = {"from_attributes": True}
