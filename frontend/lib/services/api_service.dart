@@ -8,6 +8,7 @@ import 'package:geolocator/geolocator.dart';
 import '../models/analyze_result.dart';
 import '../models/route_models.dart';
 import '../models/coverage_models.dart';
+import '../models/saved_route_models.dart';
 
 final apiServiceProvider = Provider<ApiService>((ref) => ApiService());
 
@@ -478,10 +479,10 @@ class ApiService {
     }
   }
 
-  /// \u30dd\u30fc\u30ea\u30f3\u30b0\u7528: \u65b0\u7740\u306e\u5371\u967a\u60c5\u5831\u30ec\u30dd\u30fc\u30c8\u3092\u53d6\u5f97\u3059\u308b\u3002
+  /// ポーリング用: 新着の危険情報レポートを取得する。
   ///
-  /// [afterId] \u3092\u6307\u5b9a\u3059\u308b\u3068\u3001\u305d\u306eID\u3088\u308a\u65b0\u3057\u3044\u30ec\u30dd\u30fc\u30c8\u306e\u307f\u3092\u53d6\u5f97\u3059\u308b\u3002
-  /// [afterId] \u3092\u7701\u7565\u3059\u308b\u3068\u3001\u76f4\u8fd1\u306e\u6700\u65b0\u30ec\u30b3\u30fc\u30c9\u306e\u307f\u53d6\u5f97\u3059\u308b\uff08\u521d\u671f\u5316\u7528\uff09\u3002
+  /// [afterId] を指定すると、そのIDより新しいレポートのみを取得する。
+  /// [afterId] を省略すると、直近の最新レコードのみ取得する（初期化用）。
   Future<List<Map<String, dynamic>>> fetchNewCrimeReports({int? afterId}) async {
     final query = afterId != null ? '?after_id=$afterId' : '?limit=1';
     final uri = Uri.parse('$baseUrl/crime-reports$query');
@@ -494,6 +495,132 @@ class ApiService {
       }
     } catch (e) {
       debugPrint('[ApiService] fetchNewCrimeReports error: $e');
+    }
+    return [];
+  }
+
+  // ─────────────────────────────────────────────────────────────────────
+  // 保存ルート API
+  // ─────────────────────────────────────────────────────────────────────
+
+  /// ルートを保存する: POST /api/saved-routes
+  ///
+  /// [token] 認証トークン（必須）。
+  /// [startLat/Lng] 出発地座標、[endLat/Lng] 目的地座標。
+  /// [routeType] "safe" または "shortest"。
+  /// [notificationRadiusM] 沿道通知半径（メートル）。
+  /// [name] 任意のルート名称。
+  /// 成功時は保存された [SavedRoute] を返す。失敗時は null。
+  Future<SavedRoute?> saveRoute({
+    required String token,
+    required double startLat,
+    required double startLng,
+    required double endLat,
+    required double endLng,
+    required String routeType,
+    double notificationRadiusM = 500.0,
+    String? name,
+  }) async {
+    final uri = Uri.parse('$baseUrl/saved-routes');
+    try {
+      final response = await http.post(
+        uri,
+        headers: authorizedHeaders(token),
+        body: jsonEncode({
+          'start_lat': startLat,
+          'start_lng': startLng,
+          'end_lat': endLat,
+          'end_lng': endLng,
+          'route_type': routeType,
+          'notification_radius_m': notificationRadiusM,
+          'name': ?name,
+        }),
+      ).timeout(const Duration(seconds: 15));
+
+      if (response.statusCode == 201) {
+        return SavedRoute.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
+      } else {
+        debugPrint('[ApiService] saveRoute error: ${response.statusCode} ${response.body}');
+      }
+    } catch (e) {
+      debugPrint('[ApiService] saveRoute exception: $e');
+    }
+    return null;
+  }
+
+  /// 保存ルート一覧を取得する: GET /api/saved-routes
+  ///
+  /// [token] 認証トークン（必須）。
+  Future<List<SavedRoute>> getSavedRoutes({required String token}) async {
+    final uri = Uri.parse('$baseUrl/saved-routes');
+    try {
+      final response = await http.get(
+        uri,
+        headers: authorizedHeaders(token),
+      ).timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 200) {
+        final List<dynamic> data = jsonDecode(response.body);
+        return data
+            .map((e) => SavedRoute.fromJson(e as Map<String, dynamic>))
+            .toList();
+      } else {
+        debugPrint('[ApiService] getSavedRoutes error: ${response.statusCode}');
+      }
+    } catch (e) {
+      debugPrint('[ApiService] getSavedRoutes exception: $e');
+    }
+    return [];
+  }
+
+  /// 保存ルートを削除する: DELETE /api/saved-routes/{id}
+  ///
+  /// [token] 認証トークン（必須）。
+  /// 成功時は true を返す。
+  Future<bool> deleteSavedRoute({
+    required String token,
+    required int routeId,
+  }) async {
+    final uri = Uri.parse('$baseUrl/saved-routes/$routeId');
+    try {
+      final response = await http.delete(
+        uri,
+        headers: authorizedHeaders(token),
+      ).timeout(const Duration(seconds: 10));
+
+      return response.statusCode == 204;
+    } catch (e) {
+      debugPrint('[ApiService] deleteSavedRoute exception: $e');
+    }
+    return false;
+  }
+
+  /// 保存ルート沿いのアラートをポーリング取得: GET /api/saved-routes/alerts
+  ///
+  /// [token] 認証トークン（必須）。
+  /// [afterId] を指定すると、そのIDより新しいアラートのみを取得する。
+  Future<List<RouteAlert>> fetchRouteAlerts({
+    required String token,
+    int? afterId,
+  }) async {
+    final query = afterId != null ? '?after_id=$afterId' : '';
+    final uri = Uri.parse('$baseUrl/saved-routes/alerts$query');
+    try {
+      final response = await http.get(
+        uri,
+        headers: authorizedHeaders(token),
+      ).timeout(const Duration(seconds: 5));
+
+      if (response.statusCode == 200) {
+        final List<dynamic> data = jsonDecode(response.body);
+        return data
+            .map((e) => RouteAlert.fromJson(e as Map<String, dynamic>))
+            .toList();
+      } else {
+        debugPrint('[ApiService] fetchRouteAlerts error: ${response.statusCode}');
+      }
+    } catch (e) {
+      debugPrint('[ApiService] fetchRouteAlerts exception: $e');
     }
     return [];
   }

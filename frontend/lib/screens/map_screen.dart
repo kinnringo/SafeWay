@@ -19,7 +19,9 @@ import '../utils/marker_helper.dart';
 import '../widgets/place_info_sheet.dart';
 import '../widgets/origin_search_sheet.dart';
 import '../models/route_models.dart';
+import '../models/saved_route_models.dart';
 import '../services/api_service.dart';
+import '../services/auth_service.dart';
 
 /// 選択中のルート種別
 enum _RouteType { safe, shortest }
@@ -50,6 +52,11 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   // 危険情報アラート ポーリング用
   int? _lastKnownReportId;
   Timer? _pollingTimer;
+
+  // 保存ルートアラート ポーリング用
+  int? _lastKnownRouteAlertId;
+  Timer? _routeAlertPollingTimer;
+  bool _isSavingRoute = false;
 
   // カスタムピン用
   LatLng? _customPinLocation;
@@ -969,6 +976,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     _initLocationTracking();
     _loadCustomMarkers();
     _initAlertPolling();
+    _initRouteAlertPolling();
   }
 
   Future<void> _loadCustomMarkers() async {
@@ -1187,9 +1195,210 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     );
   }
 
+  // ─────────────────────────────────────────────────────────────────────
+  // 保存ルート沿いアラート（ポーリング方式）
+  // ─────────────────────────────────────────────────────────────────────
+
+  void _initRouteAlertPolling() async {
+    final authState = ref.read(authProvider);
+    final token = authState.token;
+    if (token == null) return; // 未ログインは初期化しない
+
+    final apiService = ref.read(apiServiceProvider);
+
+    // 初回: 現在のアラート最大IDを記録（起動前のアラートは無視）
+    final initAlerts = await apiService.fetchRouteAlerts(token: token);
+    _lastKnownRouteAlertId = initAlerts.isNotEmpty ? initAlerts.last.id : 0;
+
+    // 4秒ごとに新着ルートアラートを確認
+    _routeAlertPollingTimer = Timer.periodic(const Duration(seconds: 4), (timer) async {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      final currentToken = ref.read(authProvider).token;
+      if (currentToken == null) return; // ログアウトされていたら無視
+
+      try {
+        final newAlerts = await apiService.fetchRouteAlerts(
+          token: currentToken,
+          afterId: _lastKnownRouteAlertId,
+        );
+
+        if (newAlerts.isNotEmpty && mounted) {
+          _lastKnownRouteAlertId = newAlerts.last.id;
+          for (final alert in newAlerts) {
+            if (mounted) {
+              _showRouteAlertDialog(alert);
+            }
+          }
+        }
+      } catch (e) {
+        debugPrint('[RouteAlertPolling] error: $e');
+      }
+    });
+  }
+
+  void _showRouteAlertDialog(RouteAlert alert) {
+    final myLat = _currentPosition?.latitude ?? alert.reportLat;
+    final myLng = _currentPosition?.longitude ?? alert.reportLng;
+
+    final distMeters = Geolocator.distanceBetween(
+      myLat, myLng, alert.reportLat, alert.reportLng,
+    ).round();
+    final distanceText = distMeters > 1000
+        ? '${(distMeters / 1000).toStringAsFixed(1)}km'
+        : '${distMeters}m';
+
+    final eventNameMap = {
+      'bear': 'クマ',
+      'wildlife': '野生動物',
+      'suspicious_person': '不審者',
+      'crime_violent': '凶悪犯罪',
+    };
+    final eventName = eventNameMap[alert.eventType] ?? alert.eventType;
+    final description = alert.description ?? '詳しい状況の記載はありません。';
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: Colors.orange.shade900,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            const Icon(Icons.route, color: Colors.amber, size: 30),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                '保存ルート沿い危険情報',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 18,
+                ),
+              ),
+            ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: Colors.amber.shade400,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                '$distanceText先で$eventNameが目撃されました',
+                style: const TextStyle(
+                  color: Colors.black,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              '詳細：$description',
+              style: const TextStyle(color: Colors.white, fontSize: 15, height: 1.4),
+            ),
+          ],
+        ),
+        actions: [
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.white),
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text(
+              '確認',
+              style: TextStyle(color: Colors.deepOrange, fontWeight: FontWeight.bold),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ─────────────────────────────────────────────────────────────────────
+  // ルート保存処理
+  // ─────────────────────────────────────────────────────────────────────
+
+  Future<void> _saveCurrentRoute() async {
+    final authState = ref.read(authProvider);
+    final token = authState.token;
+    if (token == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('ルートを保存するにはログインが必要です。')),
+      );
+      return;
+    }
+
+    final origin = _originLocation ?? _currentPosition;
+    final dest = _destinationLocation;
+    if (origin == null || dest == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('出発地または目的地が不明なためルートを保存できませんでした。'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
+    // 選択中のルート種別を取得（未選択の場合は safe をデフォルト）
+    final routeType = _selectedRouteType == _RouteType.shortest ? 'shortest' : 'safe';
+    final routeName = _destinationName != null ? '$_destinationName へのルート' : 'お気に入りルート';
+
+    debugPrint('[RouteSave] 送信開始: origin=${origin.latitude},${origin.longitude} -> dest=${dest.latitude},${dest.longitude}, type=$routeType, name=$routeName');
+
+
+    setState(() => _isSavingRoute = true);
+
+    try {
+      final apiService = ref.read(apiServiceProvider);
+      final saved = await apiService.saveRoute(
+        token: token,
+        startLat: origin.latitude,
+        startLng: origin.longitude,
+        endLat: dest.latitude,
+        endLng: dest.longitude,
+        routeType: routeType,
+        name: routeName,
+      );
+
+
+      if (!mounted) return;
+
+      if (saved != null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('ルートを保存しました（${routeType == 'safe' ? '安全優先' : '最短距離'}）'),
+            backgroundColor: Colors.green.shade700,
+          ),
+        );
+        // ルートアラートポーリングを再初期化して新しいルートを監視対象に含める
+        _routeAlertPollingTimer?.cancel();
+        _initRouteAlertPolling();
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('保存に失敗しました。'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isSavingRoute = false);
+    }
+  }
+
   @override
   void dispose() {
     _pollingTimer?.cancel();
+    _routeAlertPollingTimer?.cancel();
     _mapTapDebounceTimer?.cancel();
     _positionStream?.cancel();
     _mapController?.dispose();
@@ -1468,6 +1677,42 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                     ),
                   ),
                 ),
+                const SizedBox(height: 8),
+
+                // ── 「ルートを保存」ボタン（ログイン済みのみ） ──
+                Builder(builder: (context) {
+                  final authState = ref.watch(authProvider);
+                  final isLoggedIn = authState.status == AuthStatus.authenticated;
+                  if (!isLoggedIn) return const SizedBox.shrink();
+                  return SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: _isSavingRoute ? null : _saveCurrentRoute,
+                      style: OutlinedButton.styleFrom(
+                        side: BorderSide(color: AppColors.primaryNavy),
+                        padding: const EdgeInsets.symmetric(vertical: 11),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      icon: _isSavingRoute
+                          ? const SizedBox(
+                              width: 16, height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : Icon(Icons.bookmark_add_outlined,
+                              color: AppColors.primaryNavy),
+                      label: Text(
+                        'ルートを保存',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.primaryNavy,
+                        ),
+                      ),
+                    ),
+                  );
+                }),
                 const SizedBox(height: 10),
 
                 // ── 帰属表記（ライセンス設計指針 §2.3 準拠）──
