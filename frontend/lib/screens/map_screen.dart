@@ -43,6 +43,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   LatLng? _currentPosition;
   bool _isLoadingGps = true;
   bool _hasMovedToCurrentLocation = false;
+  bool _isProcessingTap = false; // タップ連打・多重実行防止フラグ
 
   /// 地図上に立っているマーカー（目的地ピン等）
   Set<Marker> _markers = {};
@@ -676,26 +677,39 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   /// 1. 通常タップ（自動 POI 判定）
   Future<void> _onMapTap(LatLng point) async {
     if (_isSuggestionsVisible || _isNavigating) return;
+    if (_isProcessingTap) return;
 
-    // タップ地点周辺を Nearby Search で検索し、POI かどうかを判定
-    final poi = await _findNearbyPoi(point);
+    setState(() {
+      _isProcessingTap = true;
+    });
 
-    if (poi != null) {
-      // ① 付近に POI（店舗・スポット）が見つかった場合
-      // 見つかった店舗の正確な座標にピンを立て、ボトムシートを表示
-      _showSpotDetails(point: poi.latLng, placeId: poi.placeId);
-    } else {
-      // ② 付近に POI が見つからない場合（ただの道路や地面をタップ）
-      // ユーザーが「選択を解除した」とみなし、シートを閉じてピンをクリア
-      if (!mounted) return;
-      
-      if (_isPlaceSheetOpen) {
-        if (Navigator.of(context).canPop()) {
-          Navigator.pop(context); // 安全にボトムシートを閉じる
+    try {
+      // タップ地点周辺を Nearby Search で検索し、POI かどうかを判定
+      final poi = await _findNearbyPoi(point);
+
+      if (poi != null) {
+        // ① 付近に POI（店舗・スポット）が見つかった場合
+        // 見つかった店舗の正確な座標にピンを立て、ボトムシートを表示
+        _showSpotDetails(point: poi.latLng, placeId: poi.placeId);
+      } else {
+        // ② 付近に POI が見つからない場合（ただの道路や地面をタップ）
+        // ユーザーが「選択を解除した」とみなし、シートを閉じてピンをクリア
+        if (!mounted) return;
+        
+        if (_isPlaceSheetOpen) {
+          if (Navigator.of(context).canPop()) {
+            Navigator.pop(context); // 安全にボトムシートを閉じる
+          }
+        }
+        if (_markers.isNotEmpty) {
+          setState(() => _markers = {});
         }
       }
-      if (_markers.isNotEmpty) {
-        setState(() => _markers = {});
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isProcessingTap = false;
+        });
       }
     }
   }
@@ -732,13 +746,26 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   /// Web 環境でも確実に動作する。
   Future<void> _onLongPress(LatLng point) async {
     if (_isSuggestionsVisible || _isNavigating) return;
-    
-    // 長押し地点周辺の POI を検索し、あれば施設名情報を引き継ぐ
-    final poi = await _findNearbyPoi(point);
-    if (poi != null) {
-      _showSpotDetails(point: poi.latLng, placeId: poi.placeId);
-    } else {
-      _showSpotDetails(point: point);
+    if (_isProcessingTap) return;
+
+    setState(() {
+      _isProcessingTap = true;
+    });
+
+    try {
+      // 長押し地点周辺の POI を検索し、あれば施設名情報を引き継ぐ
+      final poi = await _findNearbyPoi(point);
+      if (poi != null) {
+        _showSpotDetails(point: poi.latLng, placeId: poi.placeId);
+      } else {
+        _showSpotDetails(point: point);
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isProcessingTap = false;
+        });
+      }
     }
   }
 
@@ -1660,8 +1687,14 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                       position: point,
                       icon: BitmapDescriptor.defaultMarker,
                       onTap: () {
-                        // いずれかのピンをタップした際に、その店舗の詳細情報を表示
-                        _showSpotDetails(point: point, placeId: place.placeId);
+                        if (_isProcessingTap) return;
+                        _isProcessingTap = true;
+                        try {
+                          // いずれかのピンをタップした際に、その店舗の詳細情報を表示
+                          _showSpotDetails(point: point, placeId: place.placeId);
+                        } finally {
+                          _isProcessingTap = false;
+                        }
                       },
                     ),
                   );
