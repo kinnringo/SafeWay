@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -11,11 +12,15 @@ final apiServiceProvider = Provider<ApiService>((ref) => ApiService());
 
 class ApiService {
   // バックエンドのURL
-  // MacのiOSシミュレータやWebブラウザでテストする場合は 127.0.0.1 で繋がります。
-  // iPhone実機でテストする場合は、MacのIPアドレス（例: 192.168.1.5等）に変更してください！
-  // static const String baseUrl = 'http://127.0.0.1:8000/api';
-  // android用↓
-  static const String baseUrl = 'http://10.0.2.2:8000/api';
+  static String get baseUrl {
+    if (kIsWeb) {
+      return 'http://127.0.0.1:8000/api';
+    } else if (Platform.isAndroid) {
+      return 'http://10.0.2.2:8000/api';
+    } else {
+      return 'http://127.0.0.1:8000/api';
+    }
+  }
 
   /// 認証ヘッダーを含む Map を生成するユーティリティ
   ///

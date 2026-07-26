@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../main.dart'; // rootScaffoldMessengerKey 用
@@ -23,13 +24,18 @@ final notificationServiceProvider = Provider<NotificationService>((ref) {
 
 class NotificationService {
   final Ref _ref;
-  final FirebaseMessaging _messaging = FirebaseMessaging.instance;
+  FirebaseMessaging get _messaging => FirebaseMessaging.instance;
   bool _isInitialized = false;
 
   NotificationService(this._ref);
 
   /// FCMの初期設定と権限リクエスト、デバイストークンの登録を行う
   Future<void> setupAndRegisterToken() async {
+    if (kIsWeb) {
+      debugPrint('FCM setup is skipped on Web platform.');
+      return;
+    }
+
     if (!_isInitialized) {
       // フォアグラウンドでのプッシュ通知受信リスナー
       FirebaseMessaging.onMessage.listen((RemoteMessage message) {
