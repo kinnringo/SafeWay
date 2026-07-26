@@ -4,8 +4,9 @@ FCMデバイストークンの登録と、危険情報の登録→FCM通知送�
 """
 import logging
 from datetime import datetime
+from typing import Optional, List
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from geoalchemy2 import functions as geofunc
 from sqlalchemy.orm import Session
 
@@ -18,6 +19,7 @@ from app.models.schemas import (
     DeviceTokenResponse,
     CrimeReportCreate,
     CrimeReportResponse,
+    CrimeReportDetail,
 )
 from app.services.fcm import send_crime_report_notifications
 
@@ -149,3 +151,58 @@ def create_crime_report(
         occurred_at=crime_report.occurred_at,
         notified_users=notified,
     )
+
+
+# ---------------------------------------------------------------------------
+# GET /api/crime-reports
+# ---------------------------------------------------------------------------
+
+
+@router.get(
+    "/crime-reports",
+    response_model=List[CrimeReportDetail],
+    summary="危険情報の一覧取得（差分ポーリング・新着検知対応）",
+    description=(
+        "登録済みの危険情報（クマ出没等）の一覧を取得します。"
+        "after_id を指定すると、そのIDより大きい（＝新しく投稿された）差分データのみを昇順で返却するため、"
+        "デモ等でのリアルタイムアラート代用のポーリング監視機能として即時に活躍します。"
+    ),
+)
+def get_crime_reports(
+    after_id: Optional[int] = Query(None, description="指定したIDより大きい最新レコードのみを取得"),
+    limit: int = Query(20, ge=1, le=100, description="最大取得件数"),
+    db: Session = Depends(get_db),
+):
+    """危険情報を返す。after_id 指定があれば差分取得する。"""
+    query = db.query(CrimeReport)
+
+    if after_id is not None:
+        query = query.filter(CrimeReport.id > after_id).order_by(CrimeReport.id.asc())
+    else:
+        query = query.order_by(CrimeReport.id.desc())
+
+    reports = query.limit(limit).all()
+
+    results: List[CrimeReportDetail] = []
+    for cr in reports:
+        point_wkt = db.execute(geofunc.ST_AsText(cr.geom)).scalar()
+        coords = point_wkt.replace("POINT(", "").replace(")", "").split()
+        lng = float(coords[0])
+        lat = float(coords[1])
+
+        results.append(
+            CrimeReportDetail(
+                id=cr.id,
+                event_type=cr.event_type,
+                description=cr.description,
+                lat=lat,
+                lng=lng,
+                occurred_at=cr.occurred_at,
+                created_at=cr.created_at,
+            )
+        )
+
+    if after_id is None:
+        results.reverse()
+
+    return results

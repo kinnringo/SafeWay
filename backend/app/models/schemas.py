@@ -222,6 +222,17 @@ class CrimeReportResponse(BaseModel):
     event_type: str = Field(..., description="危険種別")
     lat: float = Field(..., description="発生場所の緯度")
     lng: float = Field(..., description="発生場所の経度")
-    occurred_at: datetime = Field(..., description="発生日時")
     notified_users: int = Field(..., description="通知を送信したデバイス数")
+
+
+class CrimeReportDetail(BaseModel):
+    """危険情報詳細レスポンス（GETポーリング用）"""
+
+    id: int = Field(..., description="crime_report の ID")
+    event_type: str = Field(..., description="危険種別（'bear', 'suspicious_person'など）")
+    description: Optional[str] = Field(None, description="詳細な説明文")
+    lat: float = Field(..., description="発生場所の緯度")
+    lng: float = Field(..., description="発生場所の経度")
+    occurred_at: datetime = Field(..., description="発生日時")
+    created_at: datetime = Field(..., description="データ登録日時")
 
