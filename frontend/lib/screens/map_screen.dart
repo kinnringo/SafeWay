@@ -598,11 +598,15 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       markerId: MarkerId('hazard_${hazard.id}'),
       position: LatLng(hazard.lat, hazard.lng),
       icon: icon,
-      onTap: () => _showHazardDetailsSheet(hazard),
+      onTap: () {
+        if (_isPlaceSheetOpen) return;
+        _showHazardDetailsSheet(hazard);
+      },
     );
   }
 
   void _showHazardDetailsSheet(HazardPoint hazard) {
+    _isPlaceSheetOpen = true;
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
@@ -655,7 +659,15 @@ class _MapScreenState extends ConsumerState<MapScreen> {
           },
         );
       },
-    );
+    ).whenComplete(() {
+      Future.delayed(const Duration(milliseconds: 300), () {
+        if (mounted) {
+          setState(() {
+            _isPlaceSheetOpen = false;
+          });
+        }
+      });
+    });
   }
 
   void _showHazardSettingsDialog() {
@@ -1189,6 +1201,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   // ─────────────────────────────────────────────────────────────────────
 
   void _showOriginSearchSheet() {
+    _isPlaceSheetOpen = true;
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -1221,6 +1234,14 @@ class _MapScreenState extends ConsumerState<MapScreen> {
           }
         }
       }
+    }).whenComplete(() {
+      Future.delayed(const Duration(milliseconds: 300), () {
+        if (mounted) {
+          setState(() {
+            _isPlaceSheetOpen = false;
+          });
+        }
+      });
     });
   }
 
@@ -1667,6 +1688,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   // 投稿用ボトムシートの表示
   // ─────────────────────────────────────────────────────────────────────
   void _showPostBottomSheet() {
+    _isPlaceSheetOpen = true;
     showModalBottomSheet(
       context: context,
       isScrollControlled: true, // キーボード表示時にシート全体を押し上げるために必要
@@ -1674,7 +1696,15 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       builder: (context) {
         return const PostBottomSheet();
       },
-    );
+    ).whenComplete(() {
+      Future.delayed(const Duration(milliseconds: 300), () {
+        if (mounted) {
+          setState(() {
+            _isPlaceSheetOpen = false;
+          });
+        }
+      });
+    });
   }
 
   // ─────────────────────────────────────────────────────────────────────
@@ -1682,6 +1712,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   // ─────────────────────────────────────────────────────────────────────
 
   void _showSettingsSheet() {
+    _isPlaceSheetOpen = true;
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
@@ -1762,7 +1793,15 @@ class _MapScreenState extends ConsumerState<MapScreen> {
           },
         );
       },
-    );
+    ).whenComplete(() {
+      Future.delayed(const Duration(milliseconds: 300), () {
+        if (mounted) {
+          setState(() {
+            _isPlaceSheetOpen = false;
+          });
+        }
+      });
+    });
   }
 
   @override
@@ -2024,6 +2063,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                       position: point,
                       icon: BitmapDescriptor.defaultMarker,
                       onTap: () {
+                        if (_isPlaceSheetOpen) return;
                         if (_isProcessingTap) return;
                         _isProcessingTap = true;
                         try {
