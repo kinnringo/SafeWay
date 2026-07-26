@@ -361,15 +361,17 @@ class _MapScreenState extends ConsumerState<MapScreen> {
         fetchAndDrawRoute(start: startPoint, end: destination);
       },
     ).then((_) {
-      if (mounted) {
-        setState(() {
-          _isPlaceSheetOpen = false;
-          // ナビ中でなければ、目的地マーカーをクリア
-          if (!_isNavigating) {
-            _markers = {};
-          }
-        });
-      }
+      Future.delayed(const Duration(milliseconds: 300), () {
+        if (mounted) {
+          setState(() {
+            _isPlaceSheetOpen = false;
+            // ナビ中でなければ、目的地マーカーをクリア
+            if (!_isNavigating) {
+              _markers = {};
+            }
+          });
+        }
+      });
     });
   }
 
@@ -684,6 +686,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   void _onMapTap(LatLng point) {
     if (_isSuggestionsVisible || _isNavigating) return;
     if (_isProcessingTap) return;
+    if (_isPlaceSheetOpen) return; // ボトムシート表示中の背景タップ貫通防止
 
     // ダブルタップ等のカメラ移動でキャンセルできるようタイマーをセット
     _mapTapDebounceTimer?.cancel();
@@ -710,12 +713,6 @@ class _MapScreenState extends ConsumerState<MapScreen> {
         } else {
           // ② 付近に POI が見つからない場合（ただの道路や地面をタップ）
           if (!mounted) return;
-          
-          if (_isPlaceSheetOpen) {
-            if (Navigator.of(context).canPop()) {
-              Navigator.pop(context); // 安全にボトムシートを閉じる
-            }
-          }
           if (_markers.isNotEmpty) {
             setState(() => _markers = {});
           }
@@ -763,23 +760,27 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   Future<void> _onLongPress(LatLng point) async {
     if (_isSuggestionsVisible || _isNavigating) return;
     if (_isProcessingTap) return;
+    if (_isPlaceSheetOpen) return; // ボトムシート表示中の背景タップ貫通防止
 
     setState(() {
       _isProcessingTap = true;
     });
 
     try {
-      String addressStr = '指定した地点';
+      String addressStr = '座標: ${point.latitude.toStringAsFixed(4)}, ${point.longitude.toStringAsFixed(4)}';
       try {
         final placemarks = await Geocoding().placemarkFromCoordinates(point.latitude, point.longitude);
         if (placemarks.isNotEmpty) {
           final p = placemarks.first;
-          final parts = [p.administrativeArea, p.locality, p.subLocality, p.thoroughfare, p.subThoroughfare]
-              .whereType<String>()
-              .where((s) => s.isNotEmpty)
-              .toList();
-          if (parts.isNotEmpty) {
-            addressStr = parts.join('');
+          final admin = p.administrativeArea ?? '';
+          final local = p.locality ?? '';
+          final subLocal = p.subLocality ?? '';
+          final thoroughfare = p.thoroughfare ?? '';
+          final subThoroughfare = p.subThoroughfare ?? '';
+
+          final address = '$admin$local$subLocal$thoroughfare$subThoroughfare';
+          if (address.isNotEmpty) {
+            addressStr = address;
           }
         }
       } catch (e) {
@@ -895,16 +896,18 @@ class _MapScreenState extends ConsumerState<MapScreen> {
         );
       },
     ).then((_) {
-      if (mounted) {
-        setState(() {
-          _isPlaceSheetOpen = false;
-          _customPinLocation = null;
-          _customPinAddress = null;
-          if (!_isNavigating) {
-            _markers = {};
-          }
-        });
-      }
+      Future.delayed(const Duration(milliseconds: 300), () {
+        if (mounted) {
+          setState(() {
+            _isPlaceSheetOpen = false;
+            _customPinLocation = null;
+            _customPinAddress = null;
+            if (!_isNavigating) {
+              _markers = {};
+            }
+          });
+        }
+      });
     });
   }
 
