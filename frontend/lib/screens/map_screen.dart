@@ -58,6 +58,8 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   /// 地図上に立っているマーカー（目的地ピン等）
   Set<Marker> _markers = {};
 
+  bool _isSatelliteMode = false; // 航空写真モードのトグル
+
   /// ハザード情報表示用のマーカー
   Set<Marker> _hazardMarkers = {};
   BitmapDescriptor? _bearMarkerSmall;
@@ -1652,7 +1654,9 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       context: context,
       backgroundColor: Colors.transparent,
       builder: (context) {
-        return Consumer(
+        return StatefulBuilder(
+          builder: (BuildContext context, StateSetter setModalState) {
+            return Consumer(
           builder: (context, ref, child) {
             final isDarkTheme = ref.watch(mapThemeProvider);
             final bgColor = isDarkTheme ? AppColors.darkSurface : Colors.white;
@@ -1697,12 +1701,32 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                       ),
                       activeThumbColor: AppColors.blueAccentLight,
                     ),
+                    const SizedBox(height: 8),
+                    SwitchListTile(
+                      title: Text('航空写真モード', style: TextStyle(color: textColor)),
+                      value: _isSatelliteMode,
+                      onChanged: (value) {
+                        setModalState(() {
+                          _isSatelliteMode = value;
+                        });
+                        setState(() {
+                          _isSatelliteMode = value;
+                        });
+                      },
+                      secondary: Icon(
+                        _isSatelliteMode ? Icons.satellite_alt : Icons.map,
+                        color: _isSatelliteMode ? AppColors.blueAccentLight : Colors.grey,
+                      ),
+                      activeThumbColor: AppColors.blueAccentLight,
+                    ),
                     const SizedBox(height: 20),
                   ],
                 ),
               ),
             ),
           );
+          },
+        );
           },
         );
       },
@@ -1793,6 +1817,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                 target: _defaultCenter,
                 zoom: 15.0,
               ),
+              mapType: _isSatelliteMode ? MapType.hybrid : MapType.normal,
               style: isDarkTheme ? MapStyles.dark : MapStyles.light,
               // ─ 本家 Google Map 準拠のインタラクションハンドラ ─
               onTap: _onMapTap,
