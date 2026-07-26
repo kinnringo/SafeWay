@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
+import 'package:geolocator/geolocator.dart';
 import '../models/analyze_result.dart';
 import '../models/route_models.dart';
 import '../models/coverage_models.dart';
@@ -255,12 +256,8 @@ class ApiService {
         final results = data['results'] as List<dynamic>?;
         
         if (results != null && results.isNotEmpty) {
-          // レビュー件数（user_ratings_total）と評価（rating）を基準に最適な施設を選択
-          Map<String, dynamic>? bestPlace;
-          int maxReviews = -1;
-          double maxRating = -1.0;
-          double minDistSq = double.infinity;
-
+          // 1. 各施設の距離を計算
+          final List<Map<String, dynamic>> placesWithDist = [];
           for (final r in results) {
             final place = r as Map<String, dynamic>;
             final geom = place['geometry'] as Map<String, dynamic>?;
@@ -269,35 +266,92 @@ class ApiService {
 
             final rLat = (loc['lat'] as num).toDouble();
             final rLng = (loc['lng'] as num).toDouble();
-            final distSq = (rLat - lat) * (rLat - lat) + (rLng - lng) * (rLng - lng);
+            final distMeters = Geolocator.distanceBetween(lat, lng, rLat, rLng);
+            
+            place['computed_distance'] = distMeters;
+            placesWithDist.add(place);
+          }
 
-            final reviews = place['user_ratings_total'] as int? ?? 0;
-            final rating = (place['rating'] as num?)?.toDouble() ?? 0.0;
+          if (placesWithDist.isEmpty) return null;
 
-            bool isBetter = false;
+          // 2. 各ティア（15m, 50m）の施設を抽出
+          final within15m = placesWithDist.where((p) => (p['computed_distance'] as double) <= 15.0).toList();
+          final within50m = placesWithDist.where((p) => (p['computed_distance'] as double) <= 50.0).toList();
 
-            // 1. 基本的にレビュー件数（user_ratings_total）が最も多い施設を最優先
-            if (reviews > maxReviews) {
-              isBetter = true;
-            } 
-            // 2. レビュー件数が同じ場合は、評価（rating）が高い方を優先
-            else if (reviews == maxReviews) {
-              if (rating > maxRating) {
-                isBetter = true;
-              } 
-              // 3. レビューも評価も同じ場合は、タップ座標からの距離が近い方を優先
-              else if (rating == maxRating) {
-                if (distSq < minDistSq) {
-                  isBetter = true;
-                }
+          Map<String, dynamic>? bestPlace;
+
+          if (within15m.isNotEmpty) {
+            // ステップ1: 15m以内の至近距離判定
+            if (within15m.length == 1) {
+              bestPlace = within15m.first;
+            } else {
+              // 距離順にソート
+              within15m.sort((a, b) => (a['computed_distance'] as double).compareTo(b['computed_distance'] as double));
+              
+              final firstDist = within15m[0]['computed_distance'] as double;
+              final secondDist = within15m[1]['computed_distance'] as double;
+
+              if ((secondDist - firstDist) <= 5.0) {
+                // 1位と2位の差が5m以内の場合：接戦となっている施設群（1位から5m以内）を抽出
+                final tiedPlaces = within15m.where((p) => (p['computed_distance'] as double) - firstDist <= 5.0).toList();
+                
+                // 接戦の中で「レビュー件数 > 評価」で再ソート
+                tiedPlaces.sort((a, b) {
+                  final aReviews = a['user_ratings_total'] as int? ?? 0;
+                  final bReviews = b['user_ratings_total'] as int? ?? 0;
+                  if (aReviews != bReviews) return bReviews.compareTo(aReviews);
+                  
+                  final aRating = (a['rating'] as num?)?.toDouble() ?? 0.0;
+                  final bRating = (b['rating'] as num?)?.toDouble() ?? 0.0;
+                  return bRating.compareTo(aRating);
+                });
+                
+                bestPlace = tiedPlaces.first;
+              } else {
+                // 差が5mより大きい場合は、純粋に一番近いものを選択
+                bestPlace = within15m.first;
               }
             }
+          } else if (within50m.isNotEmpty) {
+            // ステップ2: 15m〜50mの曖昧な距離の判定（レビュー件数 > 評価優先）
+            int maxReviews = -1;
+            double maxRating = -1.0;
+            double minDist = double.infinity;
 
-            if (isBetter) {
-              maxReviews = reviews;
-              maxRating = rating;
-              minDistSq = distSq;
-              bestPlace = place;
+            for (final place in within50m) {
+              final reviews = place['user_ratings_total'] as int? ?? 0;
+              final rating = (place['rating'] as num?)?.toDouble() ?? 0.0;
+              final dist = place['computed_distance'] as double;
+
+              bool isBetter = false;
+              if (reviews > maxReviews) {
+                isBetter = true;
+              } else if (reviews == maxReviews) {
+                if (rating > maxRating) {
+                  isBetter = true;
+                } else if (rating == maxRating) {
+                  if (dist < minDist) {
+                    isBetter = true;
+                  }
+                }
+              }
+
+              if (isBetter) {
+                maxReviews = reviews;
+                maxRating = rating;
+                minDist = dist;
+                bestPlace = place;
+              }
+            }
+          } else {
+            // ステップ3: 50m以内に無い場合は、純粋に一番近い施設を選ぶ
+            double minDistance = double.infinity;
+            for (final place in placesWithDist) {
+              final dist = place['computed_distance'] as double;
+              if (dist < minDistance) {
+                minDistance = dist;
+                bestPlace = place;
+              }
             }
           }
 
