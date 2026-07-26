@@ -477,4 +477,24 @@ class ApiService {
       throw Exception('APIエラー (${response.statusCode}): $responseData');
     }
   }
+
+  /// \u30dd\u30fc\u30ea\u30f3\u30b0\u7528: \u65b0\u7740\u306e\u5371\u967a\u60c5\u5831\u30ec\u30dd\u30fc\u30c8\u3092\u53d6\u5f97\u3059\u308b\u3002
+  ///
+  /// [afterId] \u3092\u6307\u5b9a\u3059\u308b\u3068\u3001\u305d\u306eID\u3088\u308a\u65b0\u3057\u3044\u30ec\u30dd\u30fc\u30c8\u306e\u307f\u3092\u53d6\u5f97\u3059\u308b\u3002
+  /// [afterId] \u3092\u7701\u7565\u3059\u308b\u3068\u3001\u76f4\u8fd1\u306e\u6700\u65b0\u30ec\u30b3\u30fc\u30c9\u306e\u307f\u53d6\u5f97\u3059\u308b\uff08\u521d\u671f\u5316\u7528\uff09\u3002
+  Future<List<Map<String, dynamic>>> fetchNewCrimeReports({int? afterId}) async {
+    final query = afterId != null ? '?after_id=$afterId' : '?limit=1';
+    final uri = Uri.parse('$baseUrl/crime-reports$query');
+
+    try {
+      final response = await http.get(uri).timeout(const Duration(seconds: 5));
+      if (response.statusCode == 200) {
+        final List<dynamic> data = json.decode(response.body);
+        return data.cast<Map<String, dynamic>>();
+      }
+    } catch (e) {
+      debugPrint('[ApiService] fetchNewCrimeReports error: $e');
+    }
+    return [];
+  }
 }

@@ -47,6 +47,10 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   bool _isProcessingTap = false; // タップ連打・多重実行防止フラグ
   Timer? _mapTapDebounceTimer; // ダブルタップ誤爆防止用タイマー
 
+  // 危険情報アラート ポーリング用
+  int? _lastKnownReportId;
+  Timer? _pollingTimer;
+
   // カスタムピン用
   LatLng? _customPinLocation;
   String? _customPinAddress;
@@ -920,6 +924,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     super.initState();
     _initLocationTracking();
     _loadCustomMarkers();
+    _initAlertPolling();
   }
 
   Future<void> _loadCustomMarkers() async {
@@ -1015,9 +1020,131 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     }
   }
 
+  // ─────────────────────────────────────────────────────────────────────
+  // 危険情報アラート（ポーリング方式 / Web対応）
+  // ─────────────────────────────────────────────────────────────────────
+
+  void _initAlertPolling() async {
+    final apiService = ref.read(apiServiceProvider);
+
+    // 初回: 現在DBにある中で最新のIDを記録（アプリ起動前の情報はアラートしない）
+    final initials = await apiService.fetchNewCrimeReports();
+    if (initials.isNotEmpty) {
+      _lastKnownReportId = initials.first['id'] as int;
+    } else {
+      _lastKnownReportId = 0;
+    }
+
+    // 4秒ごとに新着レポートを確認
+    _pollingTimer = Timer.periodic(const Duration(seconds: 4), (timer) async {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      if (_lastKnownReportId == null) return;
+
+      try {
+        final newReports = await apiService.fetchNewCrimeReports(afterId: _lastKnownReportId);
+
+        if (newReports.isNotEmpty && mounted) {
+          // 二度鳴り防止: 取得した中で最大のIDを更新
+          _lastKnownReportId = newReports.last['id'] as int;
+
+          final myLat = _currentPosition?.latitude ?? 37.3450;
+          final myLng = _currentPosition?.longitude ?? 138.9000;
+
+          for (final report in newReports) {
+            if (mounted) {
+              _showEmergencyDialog(report, myLat, myLng);
+            }
+          }
+        }
+      } catch (e) {
+        debugPrint('[Polling] error: $e');
+      }
+    });
+  }
+
+  void _showEmergencyDialog(Map<String, dynamic> report, double myLat, double myLng) {
+    final double rLat = (report['lat'] as num).toDouble();
+    final double rLng = (report['lng'] as num).toDouble();
+
+    final distMeters = Geolocator.distanceBetween(myLat, myLng, rLat, rLng).round();
+    final String distanceText = distMeters > 1000
+        ? '${(distMeters / 1000).toStringAsFixed(1)}km'
+        : '${distMeters}m';
+
+    final eventName = report['event_type'] == 'bear' ? 'クマ' : '不審者/危険対象';
+    final headerMessage = '$distanceText先で$eventNameが目撃されました';
+    final description = report['description'] ?? '詳しい状況の記載はありません。';
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: Colors.red.shade900,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            const Icon(Icons.warning_amber_rounded, color: Colors.amber, size: 36),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                '$eventName出没警告',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 20,
+                ),
+              ),
+            ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: Colors.amber.shade400,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                headerMessage,
+                style: const TextStyle(
+                  color: Colors.black,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              '詳細：$description',
+              style: const TextStyle(color: Colors.white, fontSize: 15, height: 1.4),
+            ),
+          ],
+        ),
+        actions: [
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.white),
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text(
+              '確認',
+              style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
   @override
   void dispose() {
+    _pollingTimer?.cancel();
+    _mapTapDebounceTimer?.cancel();
     _positionStream?.cancel();
     _mapController?.dispose();
     super.dispose();
