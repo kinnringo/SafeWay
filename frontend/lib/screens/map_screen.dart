@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:geocoding/geocoding.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:pointer_interceptor/pointer_interceptor.dart';
 import '../providers/image_provider.dart';
@@ -44,6 +45,11 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   bool _isLoadingGps = true;
   bool _hasMovedToCurrentLocation = false;
   bool _isProcessingTap = false; // タップ連打・多重実行防止フラグ
+  Timer? _mapTapDebounceTimer; // ダブルタップ誤爆防止用タイマー
+
+  // カスタムピン用
+  LatLng? _customPinLocation;
+  String? _customPinAddress;
 
   /// 地図上に立っているマーカー（目的地ピン等）
   Set<Marker> _markers = {};
@@ -675,43 +681,53 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   // ─────────────────────────────────────────────────────────────────────
 
   /// 1. 通常タップ（自動 POI 判定）
-  Future<void> _onMapTap(LatLng point) async {
+  void _onMapTap(LatLng point) {
     if (_isSuggestionsVisible || _isNavigating) return;
     if (_isProcessingTap) return;
 
-    setState(() {
-      _isProcessingTap = true;
-    });
+    // ダブルタップ等のカメラ移動でキャンセルできるようタイマーをセット
+    _mapTapDebounceTimer?.cancel();
+    _mapTapDebounceTimer = Timer(const Duration(milliseconds: 300), () async {
+      if (!mounted) return;
 
-    try {
-      // タップ地点周辺を Nearby Search で検索し、POI かどうかを判定
-      final poi = await _findNearbyPoi(point);
+      setState(() {
+        _isProcessingTap = true;
+      });
 
-      if (poi != null) {
-        // ① 付近に POI（店舗・スポット）が見つかった場合
-        // 見つかった店舗の正確な座標にピンを立て、ボトムシートを表示
-        _showSpotDetails(point: poi.latLng, placeId: poi.placeId);
-      } else {
-        // ② 付近に POI が見つからない場合（ただの道路や地面をタップ）
-        // ユーザーが「選択を解除した」とみなし、シートを閉じてピンをクリア
-        if (!mounted) return;
-        
-        if (_isPlaceSheetOpen) {
-          if (Navigator.of(context).canPop()) {
-            Navigator.pop(context); // 安全にボトムシートを閉じる
+      try {
+        // カスタムピン（長押しで立てたピン）があればクリアする
+        if (_customPinLocation != null) {
+          _customPinLocation = null;
+          _customPinAddress = null;
+        }
+
+        // タップ地点周辺を Nearby Search で検索し、POI かどうかを判定
+        final poi = await _findNearbyPoi(point);
+
+        if (poi != null) {
+          // ① 付近に POI（店舗・スポット）が見つかった場合
+          _showSpotDetails(point: poi.latLng, placeId: poi.placeId);
+        } else {
+          // ② 付近に POI が見つからない場合（ただの道路や地面をタップ）
+          if (!mounted) return;
+          
+          if (_isPlaceSheetOpen) {
+            if (Navigator.of(context).canPop()) {
+              Navigator.pop(context); // 安全にボトムシートを閉じる
+            }
+          }
+          if (_markers.isNotEmpty) {
+            setState(() => _markers = {});
           }
         }
-        if (_markers.isNotEmpty) {
-          setState(() => _markers = {});
+      } finally {
+        if (mounted) {
+          setState(() {
+            _isProcessingTap = false;
+          });
         }
       }
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isProcessingTap = false;
-        });
-      }
-    }
+    });
   }
 
   /// タップ座標周辺の POI を検索するヘルパー
@@ -753,13 +769,38 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     });
 
     try {
-      // 長押し地点周辺の POI を検索し、あれば施設名情報を引き継ぐ
-      final poi = await _findNearbyPoi(point);
-      if (poi != null) {
-        _showSpotDetails(point: poi.latLng, placeId: poi.placeId);
-      } else {
-        _showSpotDetails(point: point);
+      String addressStr = '指定した地点';
+      try {
+        final placemarks = await Geocoding().placemarkFromCoordinates(point.latitude, point.longitude);
+        if (placemarks.isNotEmpty) {
+          final p = placemarks.first;
+          final parts = [p.administrativeArea, p.locality, p.subLocality, p.thoroughfare, p.subThoroughfare]
+              .whereType<String>()
+              .where((s) => s.isNotEmpty)
+              .toList();
+          if (parts.isNotEmpty) {
+            addressStr = parts.join('');
+          }
+        }
+      } catch (e) {
+        debugPrint('Geocoding error: $e');
       }
+
+      setState(() {
+        _customPinLocation = point;
+        _customPinAddress = addressStr; // 値をセット
+        _isPlaceSheetOpen = true;
+
+        _markers = {
+          Marker(
+            markerId: const MarkerId('custom_pin'),
+            position: point,
+            icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
+          ),
+        };
+      });
+
+      _showCustomPinSheet(point); // addressStrではなく_customPinAddressを使用するよう変更
     } finally {
       if (mounted) {
         setState(() {
@@ -767,6 +808,104 @@ class _MapScreenState extends ConsumerState<MapScreen> {
         });
       }
     }
+  }
+
+  void _showCustomPinSheet(LatLng point) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) {
+        return Consumer(
+          builder: (context, ref, child) {
+            final isDark = ref.watch(mapThemeProvider);
+            final bgColor = isDark ? AppColors.darkSurface : Colors.white;
+            final textColor = isDark ? AppColors.darkTextPrimary : AppColors.primaryNavy;
+            final subTextColor = isDark ? AppColors.darkTextSecondary : Colors.grey.shade600;
+
+            // 状態から読み込むことでunused warningを解消
+            final addressStr = _customPinAddress ?? '指定した地点';
+
+            return PointerInterceptor(
+              child: Container(
+                padding: const EdgeInsets.only(top: 24, left: 24, right: 24, bottom: 32),
+                decoration: BoxDecoration(
+                  color: bgColor,
+                  borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '指定した地点',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: textColor,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      addressStr,
+                      style: TextStyle(fontSize: 14, color: subTextColor),
+                    ),
+                    const SizedBox(height: 24),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppColors.blueAccentLight,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                        onPressed: () {
+                          Navigator.of(context).pop();
+                          
+                          final effectiveStart = _originLocation ?? _currentPosition;
+                          if (effectiveStart == null) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('現在地が取得できていません。GPS を確認してください。')),
+                            );
+                            return;
+                          }
+
+                          setState(() {
+                            if (!_isRoutePlanning) {
+                              _originLocation = null;
+                              _originName = null;
+                            }
+                            _isRoutePlanning = true;
+                            _destinationLocation = point;
+                            _destinationName = addressStr;
+                          });
+
+                          final startPoint = _originLocation ?? _currentPosition!;
+                          fetchAndDrawRoute(start: startPoint, end: point);
+                        },
+                        child: const Text('ここへ行く', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    ).then((_) {
+      if (mounted) {
+        setState(() {
+          _isPlaceSheetOpen = false;
+          _customPinLocation = null;
+          _customPinAddress = null;
+          if (!_isNavigating) {
+            _markers = {};
+          }
+        });
+      }
+    });
   }
 
   // ─────────────────────────────────────────────────────────────────────
@@ -1530,6 +1669,10 @@ class _MapScreenState extends ConsumerState<MapScreen> {
               // onPoiTap: google_maps_flutter 2.17.x 時点で公開なし。
               // POI情報は長押し（onLongPress）経由で全て対応する。
               onLongPress: _onLongPress,
+              onCameraMoveStarted: () {
+                // ダブルタップズームやドラッグ等の操作が始まったら、保留中のシングルタップ処理をキャンセル
+                _mapTapDebounceTimer?.cancel();
+              },
               onCameraIdle: _onCameraIdle,
               onCameraMove: (CameraPosition position) {
                 // ズーム閾値を超えた場合のみ setState して再描画
