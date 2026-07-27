@@ -2332,32 +2332,42 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                 IconButton(
                   icon: const Icon(Icons.info_outline),
                   onPressed: () {
-                    showAboutDialog(
+                    _isPlaceSheetOpen = true;
+                    showDialog(
                       context: context,
-                      applicationName: 'SafeWay',
-                      applicationVersion: '1.0.0 (Phase 3)',
-                      applicationIcon: const Icon(
-                        Icons.shield,
-                        color: AppColors.primaryNavy,
-                        size: 40,
+                      builder: (context) => AboutDialog(
+                        applicationName: 'SafeWay',
+                        applicationVersion: '1.0.0 (Phase 3)',
+                        applicationIcon: const Icon(
+                          Icons.shield,
+                          color: AppColors.primaryNavy,
+                          size: 40,
+                        ),
+                        children: const [
+                          Text(
+                            '「最短」ではなく「安心」を。\nオープンデータ×AI画像解析で導く、歩行者・自転車向けセーフティ・ナビ。',
+                          ),
+                          SizedBox(height: 8),
+                          Text(
+                            '地図データ経路計算: © OpenStreetMap contributors (ODbL)',
+                            style: TextStyle(fontSize: 12),
+                          ),
+                          Text(
+                            'https://www.openstreetmap.org/copyright',
+                            style: TextStyle(
+                                fontSize: 12, color: Colors.blue),
+                          ),
+                        ],
                       ),
-                      children: const [
-                        Text(
-                            'GPA 2026 アプリ部門受賞を目指す「安心」ナビゲーション。'),
-                        SizedBox(height: 8),
-                        Text('Phase 3: 場所検索・タップ詳細・API仕様書対応'),
-                        SizedBox(height: 8),
-                        Text(
-                          '地図データ経路計算: © OpenStreetMap contributors (ODbL)',
-                          style: TextStyle(fontSize: 12),
-                        ),
-                        Text(
-                          'https://www.openstreetmap.org/copyright',
-                          style: TextStyle(
-                              fontSize: 12, color: Colors.blue),
-                        ),
-                      ],
-                    );
+                    ).then((_) {
+                      Future.delayed(const Duration(milliseconds: 300), () {
+                        if (mounted) {
+                          setState(() {
+                            _isPlaceSheetOpen = false;
+                          });
+                        }
+                      });
+                    });
                   },
                 ),
               ],
