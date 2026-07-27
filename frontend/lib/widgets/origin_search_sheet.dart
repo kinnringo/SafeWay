@@ -8,7 +8,13 @@ import 'search_bar_widget.dart'; // PlaceResult用
 import 'package:pointer_interceptor/pointer_interceptor.dart';
 
 class OriginSearchSheet extends ConsumerStatefulWidget {
-  const OriginSearchSheet({super.key});
+  final String title;
+  final String hintText;
+  const OriginSearchSheet({
+    super.key,
+    this.title = '地点を選択',
+    this.hintText = '場所の名前や住所を検索...',
+  });
 
   @override
   ConsumerState<OriginSearchSheet> createState() => _OriginSearchSheetState();
@@ -107,7 +113,21 @@ class _OriginSearchSheetState extends ConsumerState<OriginSearchSheet> {
                 borderRadius: BorderRadius.circular(2),
               ),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 12),
+            // シートタイトル
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: Row(
+                children: [
+                  Icon(Icons.edit_location, color: textColor),
+                  const SizedBox(width: 8),
+                  Text(widget.title, style: TextStyle(color: textColor, fontSize: 18, fontWeight: FontWeight.bold)),
+                  const Spacer(),
+                  IconButton(icon: Icon(Icons.close, color: textColor), onPressed: () => Navigator.of(context).pop()),
+                ],
+              ),
+            ),
+            const SizedBox(height: 8),
             
             // 検索バー
             Padding(
@@ -117,7 +137,7 @@ class _OriginSearchSheetState extends ConsumerState<OriginSearchSheet> {
                 focusNode: _focusNode,
                 style: TextStyle(color: textColor),
                 decoration: InputDecoration(
-                  hintText: '出発地を検索...',
+                  hintText: widget.hintText,
                   hintStyle: TextStyle(color: hintColor),
                   prefixIcon: const Icon(Icons.search, color: Colors.grey),
                   suffixIcon: _controller.text.isNotEmpty
