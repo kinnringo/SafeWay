@@ -18,6 +18,7 @@ import '../widgets/post_bottom_sheet.dart';
 import '../utils/marker_helper.dart';
 import '../widgets/place_info_sheet.dart';
 import '../widgets/origin_search_sheet.dart';
+import '../widgets/saved_routes_sheet.dart';
 import '../models/route_models.dart';
 import '../models/saved_route_models.dart';
 import '../services/api_service.dart';
@@ -1395,6 +1396,43 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     }
   }
 
+  void _showSavedRoutesSheet() {
+    _isPlaceSheetOpen = true;
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) {
+        return SavedRoutesSheet(onSelectRoute: _loadSavedRoute);
+      },
+    ).whenComplete(() => _isPlaceSheetOpen = false);
+  }
+
+  Future<void> _loadSavedRoute(SavedRoute route) async {
+    final start = LatLng(route.startLat, route.startLng);
+    final end = LatLng(route.endLat, route.endLng);
+
+    setState(() {
+      _originLocation = start;
+      _originName = '保存出発地';
+      _destinationLocation = end;
+      _destinationName = route.name ?? '保存したルート';
+      _selectedRouteType = route.routeType == 'shortest' ? _RouteType.shortest : _RouteType.safe;
+      _isRoutePlanning = false;
+    });
+
+    await fetchAndDrawRoute(start: start, end: end);
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('保存したルート「${route.name ?? "ルート #${route.id}"}」を読み込んで再計算しました。'),
+          backgroundColor: Colors.indigo.shade700,
+        ),
+      );
+    }
+  }
+
   @override
   void dispose() {
     _pollingTimer?.cancel();
@@ -2353,6 +2391,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
               mapController: _mapController,
               currentPosition: _currentPosition,
               onCameraPressed: _showPostBottomSheet,
+              onSavedRoutesPressed: _showSavedRoutesSheet,
             ),
 
           // ── 6. ルート比較カード（ルート取得後・ナビ前のみ）──────────

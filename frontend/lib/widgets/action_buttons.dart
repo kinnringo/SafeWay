@@ -10,12 +10,14 @@ class ActionButtons extends ConsumerWidget {
   final GoogleMapController? mapController;
   final LatLng? currentPosition;
   final VoidCallback onCameraPressed;
+  final VoidCallback onSavedRoutesPressed;
 
   const ActionButtons({
     super.key,
     required this.mapController,
     required this.currentPosition,
     required this.onCameraPressed,
+    required this.onSavedRoutesPressed,
   });
 
   @override
@@ -31,6 +33,17 @@ class ActionButtons extends ConsumerWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              // ── 保存ルート（お気に入り）表示ボタン ──
+              FloatingActionButton(
+                heroTag: 'savedRoutesBtn',
+                onPressed: onSavedRoutesPressed,
+                backgroundColor: isDark ? AppColors.darkFabBackground : AppColors.white,
+                foregroundColor: isDark ? AppColors.emeraldGreen : AppColors.primaryNavy,
+                elevation: 4,
+                tooltip: '保存したルート一覧',
+                child: const Icon(Icons.bookmarks, size: 24),
+              ),
+              const SizedBox(height: 14),
               // 現在地追従ボタン
               FloatingActionButton(
                 heroTag: 'currentLocationBtn',
