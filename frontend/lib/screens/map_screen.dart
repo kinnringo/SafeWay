@@ -174,11 +174,8 @@ class _MapScreenState extends ConsumerState<MapScreen> {
           Polyline(
             polylineId: PolylineId('shortest_route_segment_$i'),
             points: feature.points,
-            // 未選択時（両方表示）は青の半透明で区別、単独表示時はスコア色
-            color: _selectedRouteType == null
-                ? Colors.blue.withValues(alpha: 0.7)
-                : _safetyScoreToColor(feature.safetyScore),
-            // 未選択時は少し細め
+            color: _safetyScoreToColor(feature.safetyScore),
+            // 未選択時は少し細めにして上下を識別しやすく保持
             width: _selectedRouteType == null ? 4 : 6,
             zIndex: _selectedRouteType == null ? 5 : 10,
             startCap: Cap.roundCap,
