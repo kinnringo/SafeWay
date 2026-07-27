@@ -509,10 +509,10 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     return polygons;
   }
 
-  /// 周辺のハザード情報を取得してマーカーを更新
+  /// 周辺のハザードおよび検出アセット情報を取得してマーカーを更新
   Future<void> _fetchHazards() async {
     final hazardState = ref.read(hazardProvider);
-    if (!hazardState.isVisible || _mapController == null) {
+    if ((!hazardState.isVisible && !hazardState.isDetectionsVisible) || _mapController == null) {
       if (_hazardMarkers.isNotEmpty) {
         setState(() => _hazardMarkers = {});
       }
@@ -546,9 +546,32 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     }
   }
 
-  /// ハザード情報からマーカーを生成
+  /// ハザード情報・アセットからマーカーを生成（crime-reportsとdetectionsで個別制御）
   Marker? _createHazardMarker(HazardPoint hazard) {
     debugPrint('Hazard Info - eventType: ${hazard.eventType}, sourceType: ${hazard.sourceType}, label:${hazard.label}');
+
+    final hazardState = ref.read(hazardProvider);
+
+    final isDetection =
+        hazard.sourceType.toLowerCase() == 'streetlight' ||
+        hazard.sourceType.toLowerCase() == 'street_light' ||
+        hazard.sourceType.toLowerCase() == 'sidewalk' ||
+        hazard.sourceType.toLowerCase() == 'detection' ||
+        hazard.eventType?.toLowerCase() == 'streetlight' ||
+        hazard.eventType?.toLowerCase() == 'street_light' ||
+        hazard.eventType?.toLowerCase() == 'sidewalk' ||
+        (hazard.label?.toLowerCase().contains('street') ?? false) ||
+        (hazard.label?.contains('街灯') ?? false) ||
+        (hazard.label?.contains('歩道') ?? false);
+
+    // 1. detections系 (街灯/歩道): 専用トグルが OFF であればスキップ
+    if (isDetection && !hazardState.isDetectionsVisible) {
+      return null;
+    }
+    // 2. crime-reports系 (危険ハザード): 危険情報トグルが OFF であればスキップ
+    if (!isDetection && !hazardState.isVisible) {
+      return null;
+    }
 
     final isBear = hazard.sourceType.toLowerCase() == 'bear' ||
                    hazard.eventType?.toLowerCase() == 'bear' ||
@@ -565,7 +588,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
         (hazard.label?.toLowerCase().contains('street_light') ?? false) ||
         (hazard.label?.contains('街灯') ?? false);
 
-    // 街灯非表示状態ならマーカー生成をスキップ
+    // 街灯の自動ズーム非表示機能
     if (isStreetlight && !_showStreetlights) {
       return null;
     }
@@ -2241,10 +2264,10 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                 ),
               ),
             ),
-            // ハザード情報ボタン
+            // ハザード(危険情報) ボタン [crime-reports系のみ対応]
             Positioned(
               left: 16,
-              top: 140, // 検索バーの下あたり
+              top: 140, // 検索バーの下
               child: SafeArea(
                 child: PointerInterceptor(
                   child: Consumer(
@@ -2256,15 +2279,42 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                           heroTag: 'hazardToggleBtn',
                           onPressed: () {
                             ref.read(hazardProvider.notifier).toggleVisibility();
-                            // 表示状態が変わったら即座に再フェッチ
+                            // 表示状態が変わったら即座に更新
                             _fetchHazards();
                           },
                           backgroundColor: hazardState.isVisible ? Colors.yellow.shade700 : Colors.grey.shade400,
                           foregroundColor: Colors.white,
-                          mini: true, // 少し小さめに
-                          tooltip: 'ハザード情報の表示 (長押しで設定)',
+                          mini: true,
+                          tooltip: '危険情報 (crime-reports) の表示切替 (長押しで範囲設定)',
                           child: const Icon(Icons.warning_amber),
                         ),
+                      );
+                    },
+                  ),
+                ),
+              ),
+            ),
+            // 道路安全アセット (detections: 街灯・歩道等) 表示切替ボタン
+            Positioned(
+              left: 16,
+              top: 196, // 危険情報ボタンの直下
+              child: SafeArea(
+                child: PointerInterceptor(
+                  child: Consumer(
+                    builder: (context, ref, child) {
+                      final hazardState = ref.watch(hazardProvider);
+                      return FloatingActionButton(
+                        heroTag: 'detectionsToggleBtn',
+                        onPressed: () {
+                          ref.read(hazardProvider.notifier).toggleDetectionsVisibility();
+                          // 表示状態が変わったら即座に更新・再構成
+                          _fetchHazards();
+                        },
+                        backgroundColor: hazardState.isDetectionsVisible ? Colors.blue.shade600 : Colors.grey.shade400,
+                        foregroundColor: Colors.white,
+                        mini: true,
+                        tooltip: '街灯/歩道アセット (detections) の表示切替',
+                        child: const Icon(Icons.lightbulb_outline),
                       );
                     },
                   ),
@@ -2274,7 +2324,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
             // カバレッジ情報ボタン
             Positioned(
               left: 16,
-              top: 200, // ハザードボタンの下
+              top: 252, // アセットボタンの直下へシフト
               child: SafeArea(
                 child: PointerInterceptor(
                   child: Consumer(
