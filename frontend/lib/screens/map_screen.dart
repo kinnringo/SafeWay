@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
@@ -2434,6 +2435,19 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                 }
               },
               markers: {..._markers, ..._hazardMarkers},
+              circles: {
+                // Web版ではネイティブの myLocationEnabled が非対応のため、現在地を示す青サークルのみ自前描画
+                if (kIsWeb && _currentPosition != null)
+                  Circle(
+                    circleId: const CircleId('web_current_location_circle'),
+                    center: _currentPosition!,
+                    radius: 30,
+                    fillColor: Colors.blue.withOpacity(0.25),
+                    strokeColor: Colors.blue.withOpacity(0.8),
+                    strokeWidth: 2,
+                    zIndex: 100,
+                  ),
+              },
               polygons: coveragePolygons,
               polylines: _polylines,
               myLocationEnabled: true,
