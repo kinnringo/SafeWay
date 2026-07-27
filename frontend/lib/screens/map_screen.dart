@@ -688,7 +688,12 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                           ],
                         ),
                         const SizedBox(height: 12),
-                        Text('種類: ${hazard.sourceType}', style: TextStyle(color: subTextColor)),
+                        Text(
+                          hazard.description?.isNotEmpty == true
+                              ? hazard.description!
+                              : '詳細情報の記載はありません',
+                          style: TextStyle(color: subTextColor),
+                        ),
                         Text('更新日時: ${hazard.updatedAt}', style: TextStyle(color: subTextColor)),
                         if (hazard.confidence != null)
                           Text('信頼度: ${(hazard.confidence! * 100).toStringAsFixed(1)}%', style: TextStyle(color: subTextColor)),
