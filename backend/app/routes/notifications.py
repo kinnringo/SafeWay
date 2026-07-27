@@ -13,7 +13,13 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.auth import get_current_user
-from app.core.score_config import SCORE_MODIFIERS, DEFAULT_SCORE_MODIFIER, INFLUENCE_RADIUS_M
+from app.core.score_config import (
+    SCORE_MODIFIERS,
+    DEFAULT_SCORE_MODIFIER,
+    INFLUENCE_RADIUS_M,
+    HAZARD_SCORE_MODIFIERS,
+    HAZARD_INFLUENCE_RADIUS_M,
+)
 from app.models.db_models import User, DeviceToken, CrimeReport, SafetyPoint, SavedRoute, RouteAlert
 from app.models.schemas import (
     DeviceTokenRegister,
@@ -23,6 +29,7 @@ from app.models.schemas import (
     CrimeReportDetail,
 )
 from app.services.fcm import send_crime_report_notifications
+from app.services.scoring import update_edge_scores_near_point
 
 
 logger = logging.getLogger(__name__)
@@ -113,13 +120,16 @@ def create_crime_report(
     db.flush()  # IDを確定させる
 
     # --- 2. safety_points テーブルにも紐付けて登録（ハザードマップに即反映） ---
-    score_modifier = SCORE_MODIFIERS.get(payload.event_type.lower(), DEFAULT_SCORE_MODIFIER)
+    event_type_lower = payload.event_type.lower()
+    score_modifier = HAZARD_SCORE_MODIFIERS.get(event_type_lower, -0.50)
+    influence_radius = HAZARD_INFLUENCE_RADIUS_M.get(event_type_lower, 500.0)
+
     safety_point = SafetyPoint(
         source_type="crime_report",
         crime_report_id=crime_report.id,
         score_modifier=score_modifier,
-        influence_radius_m=INFLUENCE_RADIUS_M,
-        is_road_attribute=True,
+        influence_radius_m=influence_radius,
+        is_road_attribute=False,
         geom=obj_geom,
         is_visible=True,
         updated_at=datetime.utcnow(),
@@ -127,9 +137,17 @@ def create_crime_report(
     db.add(safety_point)
     db.commit()
 
+    # 近隣の道路網スコアを広域影響半径で即・再計算
+    try:
+        update_edge_scores_near_point(db, payload.lng, payload.lat, influence_radius)
+        db.commit()
+    except Exception as e:
+        logger.warning("犯罪・ハザード通報直後のエッジスコア再計算スキップ: %s", e)
+        db.rollback()
+
     logger.info(
-        "crime_report 登録完了: id=%d, event_type=%s, lat=%.4f, lng=%.4f",
-        crime_report.id, payload.event_type, payload.lat, payload.lng,
+        "crime_report 登録完了: id=%d, event_type=%s, mod=%.2f, rad=%.1f, lat=%.4f, lng=%.4f",
+        crime_report.id, payload.event_type, score_modifier, influence_radius, payload.lat, payload.lng,
     )
 
     # --- 3. FCM通知の送信（DBコミット後に実行。通知失敗でもDBは巻き戻さない） ---
