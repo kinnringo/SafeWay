@@ -149,6 +149,14 @@ class _OriginSearchSheetState extends ConsumerState<OriginSearchSheet> {
                 Navigator.pop(context, 'CURRENT_LOCATION');
               },
             ),
+            // 「地図上で選択」を選ぶ選択肢
+            ListTile(
+              leading: const Icon(Icons.edit_location_alt_rounded, color: Color(0xFF10B981)), // エメラルドグリーン
+              title: Text('地図上で選択', style: TextStyle(color: textColor, fontWeight: FontWeight.bold)),
+              onTap: () {
+                Navigator.pop(context, 'SELECT_ON_MAP');
+              },
+            ),
             const Divider(height: 1),
             
             // 検索結果リスト

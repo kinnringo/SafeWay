@@ -97,6 +97,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   // ルート出発地（Origin）任意設定用状態
   // ─────────────────────────────────────────────────────────────────────
   bool _isRoutePlanning = false;
+  bool _isSelectingOriginOnMap = false; // 地図上で出発地を選択するモード
   LatLng? _originLocation;
   String? _originName;
   LatLng? _destinationLocation;
@@ -761,11 +762,31 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   // 地図インタラクションハンドラ（本家 Google Map 準拠）
   // ─────────────────────────────────────────────────────────────────────
 
-  /// 1. 通常タップ（自動 POI 判定）
+  /// 1. 通常タップ（自動 POI 判定および地図上での出発地点選択対応）
   void _onMapTap(LatLng point) {
     if (_isSuggestionsVisible || _isNavigating) return;
     if (_isProcessingTap) return;
     if (_isPlaceSheetOpen) return; // ボトムシート表示中の背景タップ貫通防止
+
+    // ── 【地図上で選択モード時の出発地設定処理】 ──
+    if (_isSelectingOriginOnMap) {
+      setState(() {
+        _isSelectingOriginOnMap = false;
+        _originLocation = point;
+        _originName = '地図上で選んだ地点';
+      });
+      if (_destinationLocation != null) {
+        fetchAndDrawRoute(start: point, end: _destinationLocation!);
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('クリック（タップ）した場所を新しい出発地に設定し、ルートを再計算しました。'),
+          backgroundColor: Colors.teal.shade700,
+          duration: const Duration(seconds: 3),
+        ),
+      );
+      return;
+    }
 
     // ダブルタップ等のカメラ移動でキャンセルできるようタイマーをセット
     _mapTapDebounceTimer?.cancel();
@@ -1480,8 +1501,23 @@ class _MapScreenState extends ConsumerState<MapScreen> {
         return const OriginSearchSheet();
       },
     ).then((result) {
-      if (result == null) return;
+      if (result == null || !mounted) return;
       
+      if (result == 'SELECT_ON_MAP') {
+        setState(() {
+          _isSelectingOriginOnMap = true;
+          _isRoutePlanning = false; // パネルを一旦一時非表示にして地図の視野を確保
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('🗺 地図上の任意の地点をクリック（タップ）して出発地をセットしてください。'),
+            backgroundColor: Colors.indigo.shade700,
+            duration: const Duration(seconds: 4),
+          ),
+        );
+        return;
+      }
+
       setState(() {
         if (result == 'CURRENT_LOCATION') {
           _originLocation = null;
@@ -2427,8 +2463,57 @@ class _MapScreenState extends ConsumerState<MapScreen> {
               },
             ),
 
+          // ── 地図上の出発地選択モード時のガイダンスバナー ──
+          if (_isSelectingOriginOnMap)
+            Positioned(
+              top: 80,
+              left: 16,
+              right: 16,
+              child: SafeArea(
+                child: PointerInterceptor(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF1E3A8A).withValues(alpha: 0.95), // primaryNavy
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: const Color(0xFF10B981), width: 2), // emeraldGreen
+                      boxShadow: const [
+                        BoxShadow(color: Colors.black38, blurRadius: 8, offset: Offset(0, 4)),
+                      ],
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.touch_app_rounded, color: Color(0xFF10B981), size: 28),
+                        const SizedBox(width: 12),
+                        const Expanded(
+                          child: Text(
+                            '地図上をタップして\n新しい出発地を設定してください',
+                            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
+                          ),
+                        ),
+                        TextButton(
+                          style: TextButton.styleFrom(
+                            backgroundColor: Colors.redAccent.withValues(alpha: 0.2),
+                            foregroundColor: Colors.redAccent,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                          ),
+                          onPressed: () {
+                            setState(() {
+                              _isSelectingOriginOnMap = false;
+                              _isRoutePlanning = true; // 元のルートプランカードへ戻る
+                            });
+                          },
+                          child: const Text('キャンセル', style: TextStyle(fontWeight: FontWeight.bold)),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+
           // ルート設定カード
-          if (!_isNavigating && _isRoutePlanning)
+          if (!_isNavigating && _isRoutePlanning && !_isSelectingOriginOnMap)
             _buildRoutePlanningCard(),
 
           // ── 4. 画像プレビューカード（ナビ中は非表示）────────────────
