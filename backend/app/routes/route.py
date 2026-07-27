@@ -80,9 +80,12 @@ _NEARBY_HAZARDS_SQL = text("""
         sp.score_modifier,
         sp.updated_at,
         d.label,
-        d.confidence
+        d.confidence,
+        cr.event_type,
+        cr.description
     FROM safety_points sp
     LEFT JOIN detections d ON sp.detection_id = d.id
+    LEFT JOIN crime_reports cr ON sp.crime_report_id = cr.id
     WHERE sp.is_visible = TRUE
       AND sp.source_type != 'detection'
       AND ST_DWithin(
@@ -259,6 +262,8 @@ def _query_nearby_hazards(db: Session, route_info: RouteInfo, radius_m: float = 
             score_modifier=row.score_modifier,
             label=row.label,
             confidence=row.confidence,
+            event_type=row.event_type,
+            description=row.description,
             updated_at=row.updated_at,
         ))
 

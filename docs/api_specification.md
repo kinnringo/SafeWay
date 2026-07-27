@@ -332,6 +332,8 @@ OSM道路ネットワーク（新潟県・群馬県）と pgRouting エンジン
       "score_modifier": -0.30,
       "label": null,
       "confidence": null,
+      "event_type": "bear",
+      "description": "公園付近で体長約1mのクマの目撃情報",
       "updated_at": "2026-07-01T12:00:00"
     }
   ]
@@ -379,6 +381,7 @@ OSM道路ネットワーク（新潟県・群馬県）と pgRouting エンジン
 | `label` | string? | 検出ラベル（`streetlight` 等）。`source_type` が `detection` の場合のみ |
 | `confidence` | float? | YOLO の信頼度。`source_type` が `detection` の場合のみ |
 | `event_type` | string? | イベント種別（`bear` 等）。`source_type` が `crime_report` の場合のみ |
+| `description` | string? | 詳細記載テキストや補足説明（目撃状況等）。`source_type` が `crime_report` の場合等 |
 | `updated_at` | datetime | 最終更新日時 |
 
 ### レスポンス例
@@ -395,6 +398,7 @@ OSM道路ネットワーク（新潟県・群馬県）と pgRouting エンジン
       "label": "streetlight",
       "confidence": 0.95,
       "event_type": null,
+      "description": null,
       "updated_at": "2026-06-17T05:29:22.035039"
     }
   ],

@@ -78,10 +78,12 @@ def get_hazards(
             label = sp.detection.label
             confidence = sp.detection.confidence
 
-        # crime_report から event_type を取得
+        # crime_report から event_type と description を取得
         event_type = None
+        description = None
         if sp.crime_report is not None:
             event_type = sp.crime_report.event_type
+            description = sp.crime_report.description
 
         results.append(
             HazardPoint(
@@ -93,6 +95,7 @@ def get_hazards(
                 label=label,
                 confidence=confidence,
                 event_type=event_type,
+                description=description,
                 updated_at=sp.updated_at,
             )
         )

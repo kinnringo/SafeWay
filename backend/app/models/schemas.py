@@ -149,6 +149,9 @@ class HazardPoint(BaseModel):
     event_type: Optional[str] = Field(
         None, description="イベント種別（bear 等）。source_type が crime_report の場合のみ"
     )
+    description: Optional[str] = Field(
+        None, description="詳細情報や補足テキスト。source_type が crime_report の場合等"
+    )
     updated_at: datetime = Field(..., description="最終更新日時")
 
 
