@@ -52,10 +52,20 @@ def run_migration():
         logger.info(f"Updated {res3.rowcount} safety_points for sidewalk to {val_sidewalk}.")
         db.commit()
         
-        logger.info("=== 3. 影響を受ける周辺ロードエッジ(road_edges)の一斉再計算を実行します ===")
-        # 現在登録されている全 safety_points について道路エッジスコアを再計算する
+        logger.info("=== 3. 影響を受ける周辺ロードエッジ(road_edges)の初期化＆一斉再計算を実行します ===")
+        # 削除・変更前の古い累積を完全にゼロ化するため一度リセット
+        db.execute(text("""
+            UPDATE road_edges 
+            SET dynamic_safety_score = 0.0,
+                safety_score = base_safety_score,
+                routing_cost = length * (1.0 / GREATEST(0.01, base_safety_score));
+        """))
+        db.commit()
+        logger.info(" -> 全ロードエッジスコアをリセットしました。")
+
+        # 現在登録されている全 safety_points について道路エッジスコアを確実に再計算する
         points = db.execute(text("SELECT ST_X(geom) as lng, ST_Y(geom) as lat FROM safety_points WHERE is_visible = TRUE")).all()
-        logger.info(f"計 {len(points)} 個の安全ポイントについて周辺エッジの再計算を行います...")
+        logger.info(f"計 {len(points)} 個の安全ポイントについて周辺エッジの最新スコアを再構築します...")
         
         total_edges_updated = 0
         for p in points:
