@@ -1481,7 +1481,15 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       builder: (context) {
         return SavedRoutesSheet(onSelectRoute: _loadSavedRoute);
       },
-    ).whenComplete(() => _isPlaceSheetOpen = false);
+    ).whenComplete(() {
+      Future.delayed(const Duration(milliseconds: 300), () {
+        if (mounted) {
+          setState(() {
+            _isPlaceSheetOpen = false;
+          });
+        }
+      });
+    });
   }
 
   Future<void> _loadSavedRoute(SavedRoute route) async {
