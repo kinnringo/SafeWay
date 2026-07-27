@@ -83,7 +83,33 @@ def delete_and_rescore(target_type: str, min_id: int, max_id: int):
             updated_count += update_edge_scores_near_point(db, p.lng, p.lat)
             
         db.commit()
-        logger.info(f"✨ 全リフレッシュ再構築完了！ 合計 {updated_count} セグメント（重複含む）に最適安全スコアが適用されました。")
+        logger.info(f"✨ 道路スコアの全リフレッシュ再構築完了！ 合計 {updated_count} セグメントに安全スコアが適用されました。")
+
+        logger.info("=== 4. ゴーストメッシュ撲滅：現行のdetections（現地投稿）のみに基づいて coverage_cells を完全リセット＆再構築します ===")
+        db.execute(text("TRUNCATE TABLE coverage_cells;"))
+        for cell_size in [0.01, 0.002]:
+            db.execute(text("""
+                INSERT INTO coverage_cells (cell_lat, cell_lng, cell_size, point_count, geom)
+                SELECT 
+                    ROUND(CAST(FLOOR(ST_Y(geom) / :cs) * :cs AS NUMERIC), 5) as cell_lat,
+                    ROUND(CAST(FLOOR(ST_X(geom) / :cs) * :cs AS NUMERIC), 5) as cell_lng,
+                    :cs as cell_size,
+                    COUNT(*) as point_count,
+                    ST_MakeEnvelope(
+                        ROUND(CAST(FLOOR(ST_X(geom) / :cs) * :cs AS NUMERIC), 5),
+                        ROUND(CAST(FLOOR(ST_Y(geom) / :cs) * :cs AS NUMERIC), 5),
+                        ROUND(CAST(FLOOR(ST_X(geom) / :cs) * :cs AS NUMERIC), 5) + :cs,
+                        ROUND(CAST(FLOOR(ST_Y(geom) / :cs) * :cs AS NUMERIC), 5) + :cs,
+                        4326
+                    ) as geom
+                FROM detections
+                GROUP BY 1, 2, 3, 5
+                ON CONFLICT (cell_lat, cell_lng, cell_size) DO UPDATE
+                SET point_count = coverage_cells.point_count + EXCLUDED.point_count;
+            """), {"cs": cell_size})
+        db.commit()
+        cnt_cells = db.execute(text("SELECT COUNT(*) FROM coverage_cells;")).scalar()
+        logger.info(f"🌿 カバレッジセル完全同期！不必要なハザードや残骸は消え、純粋なアセット由来の {cnt_cells} メッシュが反映されました。")
 
     except Exception as e:
         db.rollback()

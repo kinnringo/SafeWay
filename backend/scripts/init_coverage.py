@@ -37,7 +37,7 @@ def init_coverage():
                         FLOOR(ST_Y(sp.geom) / :cell_size) * :cell_size + :cell_size,
                         4326
                     )
-                FROM safety_points sp
+                FROM detections sp
                 GROUP BY 1, 2, 3
                 ON CONFLICT (cell_lat, cell_lng, cell_size) DO UPDATE
                 SET point_count = EXCLUDED.point_count;

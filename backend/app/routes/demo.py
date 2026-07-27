@@ -64,9 +64,8 @@ def create_debug_detection(
     db.add(safety_point)
     db.commit()
 
-    # 3. 周辺道路のコストとカバレッジを更新する
+    # 3. 周辺道路のコストを更新する（カバレッジは detections の DB トリガーで自動インクリメント）
     try:
-        update_coverage_cells(db, payload.lat, payload.lng)
         update_edge_scores_near_point(db, payload.lng, payload.lat)
         db.commit()
     except Exception as e:

@@ -249,8 +249,8 @@ async def analyze_image(
             )
             db.add(db_safety_point)
 
-        # カバレッジセル（情報空白地帯可視化用）の更新
-        update_coverage_cells(db, obj_lat, obj_lng)
+        # ※カバレッジセルの計算および反映は detections テーブルの PostGIS トリガーが自動執行
+
 
 
         detection_results.append(
