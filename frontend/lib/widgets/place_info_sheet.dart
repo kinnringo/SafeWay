@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
@@ -677,59 +678,68 @@ class _PlaceInfoSheetState extends ConsumerState<_PlaceInfoSheet> {
   Widget _buildPhotoCarousel(PlaceDetail detail) {
     return SizedBox(
       height: 180,
-      child: ListView.builder(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
-        itemCount: detail.photoReferences.length,
-        itemBuilder: (context, index) {
-          final url = _buildPhotoUrl(detail.photoReferences[index]);
-          return Container(
-            margin: const EdgeInsets.only(right: 8),
-            width: 240,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(12),
-              color: Colors.grey.shade200,
-            ),
-            clipBehavior: Clip.hardEdge,
-            child: Image.network(
-              url,
-              fit: BoxFit.cover,
-              loadingBuilder: (context, child, loadingProgress) {
-                if (loadingProgress == null) return child;
-                return Center(
-                  child: CircularProgressIndicator(
-                    value: loadingProgress.expectedTotalBytes != null
-                        ? loadingProgress.cumulativeBytesLoaded /
-                            loadingProgress.expectedTotalBytes!
-                        : null,
-                    strokeWidth: 2,
-                    color: AppColors.primaryNavy,
-                  ),
-                );
-              },
-              errorBuilder: (context, error, stack) => Center(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      Icons.image_not_supported_outlined,
-                      color: Colors.grey.shade400,
-                      size: 32,
+      child: ScrollConfiguration(
+        behavior: ScrollConfiguration.of(context).copyWith(
+          dragDevices: {
+            PointerDeviceKind.touch,
+            PointerDeviceKind.mouse,
+          },
+        ),
+        child: SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+          child: Row(
+          children: detail.photoReferences.map((photoRef) {
+            final url = _buildPhotoUrl(photoRef);
+            return Container(
+              margin: const EdgeInsets.only(right: 8),
+              width: 240,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(12),
+                color: Colors.grey.shade200,
+              ),
+              clipBehavior: Clip.hardEdge,
+              child: Image.network(
+                url,
+                fit: BoxFit.cover,
+                loadingBuilder: (context, child, loadingProgress) {
+                  if (loadingProgress == null) return child;
+                  return Center(
+                    child: CircularProgressIndicator(
+                      value: loadingProgress.expectedTotalBytes != null
+                          ? loadingProgress.cumulativeBytesLoaded /
+                              loadingProgress.expectedTotalBytes!
+                          : null,
+                      strokeWidth: 2,
+                      color: AppColors.primaryNavy,
                     ),
-                    const SizedBox(height: 4),
-                    Text(
-                      '画像を読み込めません',
-                      style: TextStyle(
-                        fontSize: 10,
+                  );
+                },
+                errorBuilder: (context, error, stack) => Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.image_not_supported_outlined,
                         color: Colors.grey.shade400,
+                        size: 32,
                       ),
-                    ),
-                  ],
+                      const SizedBox(height: 4),
+                      Text(
+                        '画像を読み込めません',
+                        style: TextStyle(
+                          fontSize: 10,
+                          color: Colors.grey.shade400,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
-            ),
-          );
-        },
+            );
+          }).toList(),
+        ),
+      ),
       ),
     );
   }
