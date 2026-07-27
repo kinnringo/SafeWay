@@ -121,14 +121,22 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   // ルートの色・描画ロジック
   // ─────────────────────────────────────────────────────────────────────
 
-  /// 安全スコアから区間の色を返す
+  /// 安全スコアから区間の色を返す（7段階グラデーション評価）
   Color _safetyScoreToColor(double score) {
-    if (score >= 0.7) {
-      return const Color(0xFF2ECC71); // 緑: 安全
-    } else if (score >= 0.4) {
-      return const Color(0xFFF39C12); // オレンジ: やや危険
+    if (score >= 0.80) {
+      return const Color(0xFF00E676); // 明るめの緑 (高評価・安全)
+    } else if (score >= 0.65) {
+      return const Color(0xFF81C784); // 薄い緑
+    } else if (score >= 0.55) {
+      return const Color(0xFFC5E1A5); // 薄い黄緑
+    } else if (score >= 0.50) {
+      return const Color(0xFFC7E9B9); // 超薄い黄緑 (中立・標準)
+    } else if (score >= 0.45) {
+      return const Color(0xFFFFD54F); // 黄色
+    } else if (score >= 0.35) {
+      return const Color(0xFFFF8A65); // オレンジ
     } else {
-      return const Color(0xFFE74C3C); // 赤: 危険
+      return const Color(0xFFE53935); // 赤 (要注意・ハザード周辺)
     }
   }
 
