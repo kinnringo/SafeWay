@@ -75,15 +75,17 @@ def delete_and_rescore(target_type: str, min_id: int, max_id: int):
         logger.info(" -> 道路エッジの全件初期化（リセット）完了。")
 
         logger.info("=== 3. データベースに現存・稼働するすべての安全ポイントに基づき地図スコアを美しく再構成します ===")
-        remaining_points = db.execute(text("SELECT ST_X(geom) as lng, ST_Y(geom) as lat FROM safety_points WHERE is_visible = TRUE")).all()
+        remaining_points = db.execute(text("SELECT ST_X(geom) as lng, ST_Y(geom) as lat, influence_radius_m FROM safety_points WHERE is_visible = TRUE")).all()
         logger.info(f" -> 現在維持されている 残り {len(remaining_points)} 箇所の有効ハザード/アセット拠点の情報からロード計算を実行中...")
         
         updated_count = 0
         for p in remaining_points:
-            updated_count += update_edge_scores_near_point(db, p.lng, p.lat)
+            # 各安全ポイントがそもそも持つ影響半径 (クマであれば1000.0m等) で再適用する！
+            rad = float(p.influence_radius_m) if (p.influence_radius_m is not None and float(p.influence_radius_m) > 20.0) else 20.0
+            updated_count += update_edge_scores_near_point(db, p.lng, p.lat, radius_m=rad)
             
         db.commit()
-        logger.info(f"✨ 道路スコアの全リフレッシュ再構築完了！ 合計 {updated_count} セグメントに安全スコアが適用されました。")
+        logger.info(f"✨ 道路スコアの全リフレッシュ再構築完了！ 合計 {updated_count} セグメントに完全同期の安全スコアが適用されました。")
 
         logger.info("=== 4. ゴーストメッシュ撲滅：現行のdetections（現地投稿）のみに基づいて coverage_cells を完全リセット＆再構築します ===")
         db.execute(text("TRUNCATE TABLE coverage_cells;"))
